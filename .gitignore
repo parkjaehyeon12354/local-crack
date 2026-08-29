@@ -1,0 +1,4 @@
+# Local data — chats, drafts, personas, and provider API keys live here.
+data/
+__pycache__/
+*.pyc

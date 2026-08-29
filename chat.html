@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>크랙</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  background:#0d0d0d;color:#e8e8e8;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+button{font-family:inherit;}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-thumb{background:#2b2b2b;border-radius:6px;border:2px solid #0d0d0d;}
+::-webkit-scrollbar-track{background:transparent;}
+
+/* ── 글로벌 바 ── */
+#gbar{height:40px;flex:none;display:flex;align-items:center;padding:0 14px;}
+.gleft{display:flex;align-items:center;}
+.logo{color:#f5442e;font-weight:800;font-size:17px;letter-spacing:-.5px;margin-right:20px;cursor:pointer;}
+.gnav{display:flex;gap:16px;}
+.gnav a{color:#8a8a8a;font-size:13px;text-decoration:none;}
+.gnav a:hover{color:#d0d0d0;}
+
+/* ── 두 번째 줄 ── */
+#sbar{height:52px;flex:none;border-bottom:1px solid #1f1f1f;display:flex;align-items:center;padding:0 16px;position:relative;z-index:40;}
+.tabs{display:flex;height:52px;}
+.tab{background:none;border:0;color:#777;font-size:14px;padding:0 4px;height:52px;margin-right:18px;cursor:pointer;position:relative;}
+.tab:hover{color:#bbb;}
+.tab.active{color:#fff;font-weight:600;}
+.tab.active::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:#f5442e;}
+.sdiv{width:1px;height:20px;background:#2a2a2a;margin-right:14px;flex:none;}
+.swrap{position:relative;min-width:0;}
+#storyBtn{background:none;border:0;color:#d5d5d5;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:8px;max-width:340px;}
+#storyBtn:hover{background:#1a1a1a;}
+#storyTitle{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#storyBtn .chev{color:#777;flex:none;font-size:15px;}
+.sright{margin-left:auto;display:flex;align-items:center;gap:10px;flex:none;}
+/* ── 오른쪽 서랍 ── */
+/* 헤더(40+52) 아래에서 시작 — 안 그러면 서랍이 삼선 버튼을 덮어 다시 못 닫는다 */
+#drawer{position:fixed;top:92px;right:0;bottom:0;width:250px;background:#121212;
+  border-left:1px solid #202020;padding:16px 12px;overflow-y:auto;z-index:150;
+  transform:translateX(100%);transition:transform .18s ease;}
+#drawer.open{transform:none;}
+.dr-h{color:#6f6f6f;font-size:11px;font-weight:700;letter-spacing:.4px;
+  padding:14px 8px 7px;}
+.dr-h:first-child{padding-top:4px;}
+.dr-i{width:100%;display:flex;align-items:center;gap:10px;background:none;border:0;
+  color:#ddd;font-size:13.5px;text-align:left;padding:10px 9px;border-radius:9px;cursor:pointer;}
+.dr-i:hover{background:#1c1c1c;color:#fff;}
+.dr-ic{font-size:14px;flex:none;width:17px;}
+.dr-v{margin-left:auto;color:#7a7a7a;font-size:11.5px;max-width:88px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dr-v.on{color:#f5442e;font-weight:700;}
+.dr-flat{color:#cfcfcf;font-size:13px;padding:8px 9px;}
+#chronWarn{display:none;align-items:center;gap:10px;margin:0 auto 8px;max-width:760px;
+  width:calc(100% - 32px);background:#241413;border:1px solid #5a2420;border-radius:10px;
+  padding:10px 13px;font-size:12.5px;color:#ffb3a8;}
+#chronWarn.open{display:flex;}
+#chronWarn span{flex:1;line-height:1.5;}
+#chronGo{flex:none;background:#f5442e;border:0;color:#fff;border-radius:7px;
+  padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer;}
+#chronGo:hover{background:#ff5741;}
+#personaTag{font-size:12px;color:#9a9a9a;max-width:120px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;}
+
+/* ── 모달 ── */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;
+  align-items:center;justify-content:center;z-index:200;padding:20px;}
+.mask.open{display:flex;}
+.modal{width:460px;max-width:100%;max-height:78vh;background:#161616;
+  border:1px solid #2a2a2a;border-radius:14px;display:flex;flex-direction:column;}
+.modal-h{display:flex;align-items:center;justify-content:space-between;
+  padding:16px 18px 12px;flex:none;}
+.modal-h h3{font-size:16px;font-weight:700;}
+.modal-x{background:none;border:0;color:#888;font-size:19px;line-height:1;cursor:pointer;}
+.modal-x:hover{color:#e8e8e8;}
+.modal-b{overflow-y:auto;padding:0 18px 18px;flex:1;min-height:0;}
+.modal-f{padding:12px 18px 16px;flex:none;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
+.mbtn:disabled{opacity:.5;cursor:default;}
+
+.pcard{background:#1d1d1d;border:1px solid transparent;border-radius:11px;
+  padding:13px 14px;margin-bottom:9px;cursor:pointer;}
+.pcard:hover{background:#232323;}
+.pcard.cur{border-color:#f5442e;background:#1f1a19;}
+.pcard-t{display:flex;align-items:center;gap:7px;margin-bottom:6px;}
+.pcard-n{font-size:14px;font-weight:700;flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pcard-p{font-size:12.5px;color:#9a9a9a;line-height:1.6;white-space:pre-wrap;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;}
+.pcard-p.dim{color:#5f5f5f;}
+.now{font-size:10.5px;font-weight:700;background:#f5442e;color:#fff;
+  border-radius:5px;padding:2px 7px;flex:none;}
+.pdots{background:none;border:0;color:#777;font-size:15px;cursor:pointer;
+  padding:0 4px;flex:none;line-height:1;}
+.pdots:hover{color:#e8e8e8;}
+.padd{width:100%;background:#1d1d1d;border:1px dashed #3a3a3a;border-radius:11px;
+  color:#ccc;padding:13px;font-size:13.5px;cursor:pointer;}
+.padd:hover{background:#232323;color:#fff;}
+.pempty{color:#666;text-align:center;padding:34px 0;font-size:13px;}
+
+.fld-l{font-size:13.5px;font-weight:700;margin:14px 0 3px;}
+.fld-l .req{color:#f5442e;}
+.fld-d{color:#7a7a7a;font-size:12px;margin-bottom:7px;}
+.modal select{width:100%;appearance:none;background:#1a1a1a;border:1px solid #2a2a2a;
+  border-radius:9px;color:#e8e8e8;padding:10px 12px;font-size:13px;outline:none;
+  font-family:inherit;cursor:pointer;}
+.modal select:focus{border-color:#4a4a4a;}
+.modal input[type=text],.modal textarea{width:100%;background:#1a1a1a;
+  border:1px solid #2a2a2a;border-radius:9px;color:#e8e8e8;padding:11px 12px;
+  font-size:13.5px;outline:none;font-family:inherit;line-height:1.6;resize:none;}
+.modal input[type=text]:focus,.modal textarea:focus{border-color:#4a4a4a;}
+.modal ::placeholder{color:#5a5a5a;}
+.cnt{text-align:right;font-size:12px;font-weight:700;color:#fff;margin-top:5px;}
+.mbtn{border:1px solid #383838;background:transparent;color:#ddd;border-radius:9px;
+  padding:9px 18px;font-size:13.5px;cursor:pointer;}
+.mbtn:hover{background:#1e1e1e;}
+.mbtn.go{background:#f5442e;border-color:#f5442e;color:#fff;font-weight:700;}
+.mbtn.go:hover{background:#ff5741;}
+.mwrap{position:relative;}
+#modelBtn{display:flex;align-items:center;gap:7px;border:1px solid #363636;border-radius:999px;background:transparent;color:#e8e8e8;font-size:13px;padding:7px 14px;cursor:pointer;}
+#modelBtn:hover{background:#1a1a1a;}
+#modelBtn .bolt{color:#f5442e;font-size:13px;}
+#modelBtn .chev{color:#888;font-size:12px;}
+.circleic{width:32px;height:32px;border-radius:50%;border:1px solid #363636;background:transparent;color:#999;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.circleic:hover{background:#1a1a1a;color:#ccc;}
+
+/* ── 드롭다운 패널 공통 ── */
+.panel{position:absolute;top:calc(100% + 8px);width:320px;background:#161616;border:1px solid #2a2a2a;border-radius:12px;box-shadow:0 14px 36px rgba(0,0,0,.6);max-height:420px;overflow-y:auto;display:none;z-index:100;padding:6px;}
+.panel.open{display:block;}
+#modelPanel{right:0;max-height:min(60vh,380px);overflow-y:auto;overscroll-behavior:contain;}
+.mi-usage{padding:8px 12px 9px;border-bottom:1px solid #222;margin-bottom:4px;}
+.mi-usage .u-row{display:flex;align-items:center;gap:8px;font-size:11px;color:#888;margin-top:5px;}
+.mi-usage .u-row:first-child{margin-top:0;}
+.mi-usage .u-lb{flex:none;width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mi-usage .u-bar{flex:1;height:5px;border-radius:3px;background:#262626;overflow:hidden;}
+.mi-usage .u-fill{height:100%;background:#4a8c5f;border-radius:3px;}
+.mi-usage .s-warning .u-fill{background:#c9a227;}
+.mi-usage .s-critical .u-fill{background:#f5442e;}
+.mi-usage .s-critical .u-pct{color:#ff7a68;}
+.mi-usage .u-pct{flex:none;color:#bbb;font-weight:700;}
+#storyPanel{left:0;width:300px;}
+.panel-empty{color:#777;font-size:13px;text-align:center;padding:20px 0;}
+.mi{padding:10px 12px;border-radius:9px;cursor:pointer;}
+.mi:hover{background:#1a1a1a;}
+.mi.sel{background:#1e1e1e;}
+.mi-top{display:flex;align-items:center;gap:8px;}
+.mi-icon{font-size:15px;line-height:1;}
+.mi-name{font-weight:700;font-size:14px;}
+.mi-tag{font-size:10px;padding:2px 7px;border-radius:999px;border:1px solid rgba(245,68,46,.45);color:#f5442e;background:rgba(245,68,46,.09);white-space:nowrap;}
+.mi-tag.off{border-color:#444;color:#999;background:rgba(255,255,255,.04);}
+.mi-bal{font-size:11px;color:#4a8c5f;font-weight:700;white-space:nowrap;}
+.mi-check{margin-left:auto;color:#f5442e;font-size:14px;font-weight:700;}
+.mi-desc{color:#888;font-size:12px;line-height:1.5;margin-top:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.mi-group{color:#777;font-size:11px;font-weight:700;letter-spacing:.4px;padding:10px 12px 5px;
+  border-top:1px solid #222;margin-top:4px;}
+.mi-group:first-child{border-top:0;margin-top:0;padding-top:6px;}
+.mi-back{color:#9a9a9a;font-size:13px;padding:8px 12px;cursor:pointer;border-bottom:1px solid #222;margin-bottom:4px;}
+.mi-back:hover{color:#e8e8e8;}
+.mi-bad{color:#c4634f;font-size:11px;padding:7px 12px;line-height:1.5;border-top:1px solid #222;margin-top:4px;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.si{padding:10px 12px;border-radius:9px;cursor:pointer;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.si:hover{background:#1a1a1a;}
+.si.sel{background:#1e1e1e;}
+
+/* ── 레이아웃 ── */
+#layout{flex:1;display:flex;min-height:0;}
+
+/* ── 사이드바 ── */
+#side{width:265px;flex:none;border-right:1px solid #1f1f1f;padding:16px 12px;display:flex;flex-direction:column;min-height:0;}
+.slabel{font-size:12px;color:#777;margin:0 4px 10px;}
+.libbox{border:1px solid #222;border-radius:12px;padding:16px 14px;margin-bottom:22px;flex:none;}
+.lib-t{font-weight:700;font-size:14px;margin-bottom:6px;}
+.lib-d{color:#888;font-size:12px;line-height:1.55;}
+.lib-tip{color:#666;font-size:11px;line-height:1.55;margin-top:10px;}
+.lib-btns{display:flex;gap:8px;margin-top:13px;}
+.lib-btn{flex:1;border-radius:8px;padding:7px 0;font-size:12px;cursor:pointer;background:transparent;border:1px solid #3a3a3a;color:#c8c8c8;}
+.lib-btn:hover{background:#161616;}
+.lib-btn.accent{border-color:#f5442e;color:#f5442e;}
+.lib-btn.accent:hover{background:rgba(245,68,46,.07);}
+.chead{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#777;margin:0 4px 8px;flex:none;}
+.chead .dots{background:none;border:0;color:#777;font-size:14px;cursor:pointer;padding:2px 4px;border-radius:6px;letter-spacing:1px;}
+.chead .dots:hover{background:#1a1a1a;color:#bbb;}
+#chatList{flex:1;overflow-y:auto;min-height:0;margin:0 -4px;padding:0 4px;}
+.chat-row{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;cursor:pointer;position:relative;}
+.chat-row:hover{background:#151515;}
+.chat-row.sel{background:#1a1a1a;}
+.thumb{width:40px;height:40px;border-radius:50%;background:#262626;flex:none;display:flex;align-items:center;justify-content:center;font-size:15px;color:#999;overflow:hidden;}
+.meta{flex:1;min-width:0;}
+.meta .t{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.meta .p{font-size:12px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
+.more{opacity:0;background:none;border:0;color:#999;cursor:pointer;font-size:16px;padding:4px 6px;border-radius:6px;flex:none;line-height:1;}
+.chat-row:hover .more{opacity:1;}
+.more:hover{background:#222;color:#ddd;}
+.row-menu{position:absolute;right:8px;top:40px;background:#1c1c1c;border:1px solid #2c2c2c;border-radius:8px;display:none;z-index:60;box-shadow:0 10px 24px rgba(0,0,0,.55);min-width:96px;overflow:hidden;}
+.row-menu.open{display:block;}
+.row-menu button{display:block;width:100%;background:none;border:0;color:#ff6b5e;font-size:13px;padding:10px 16px;cursor:pointer;text-align:left;}
+.row-menu button:hover{background:#262626;}
+.no-chats{color:#777;font-size:13px;text-align:center;padding:26px 0;}
+
+/* ── 채팅 영역 ── */
+#chatWrap{flex:1;display:flex;flex-direction:column;min-width:0;}
+#scroll{flex:1;overflow-y:auto;min-height:0;}
+#msgs{max-width:770px;margin:0 auto;padding:30px 32px 18px;}
+.msg{margin:20px 0;word-break:break-word;}
+.msg.assistant p{font-size:15px;line-height:1.75;margin:0 0 12px;color:#e8e8e8;}
+.msg.assistant p:last-child{margin-bottom:0;}
+.msg.assistant.error p{color:#ff6b5e;}
+.msg.user{display:flex;justify-content:flex-end;}
+.msg.user .bubble{background:#2b2b2b;border-radius:14px;padding:10px 15px;max-width:70%;font-size:15px;line-height:1.65;white-space:pre-wrap;}
+.fired{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px;}
+.fired-chip{font-size:11px;color:#7ee787;background:rgba(126,231,135,.09);
+  border:1px solid rgba(126,231,135,.25);border-radius:999px;padding:2px 9px;cursor:default;}
+.acts{display:flex;align-items:center;justify-content:space-between;margin-top:13px;}
+.cont-btn{border:1px solid #383838;background:transparent;color:#ddd;border-radius:999px;padding:6px 15px;font-size:13px;cursor:pointer;}
+.cont-btn:hover{background:#1a1a1a;border-color:#454545;}
+.cont-btn .bolt{color:#f5442e;margin-right:3px;}
+.aright{display:flex;align-items:center;gap:4px;color:#888;}
+.cmp{font-size:12px;margin-right:6px;cursor:pointer;white-space:nowrap;}
+.cmp:hover{color:#bbb;}
+.aic{background:none;border:0;color:#888;cursor:pointer;width:27px;height:27px;border-radius:7px;font-size:14px;display:flex;align-items:center;justify-content:center;letter-spacing:1px;}
+.aic:hover{background:#1a1a1a;color:#ccc;}
+.generating{text-align:center;color:#777;font-size:13px;padding:16px 0;}
+
+/* ── 입력창 ── */
+#composerWrap{flex:none;padding:0 24px 30px;}
+#composer{max-width:770px;margin:0 auto;background:#161616;border:1px solid #262626;border-radius:16px;min-height:95px;padding:13px 14px 10px;display:flex;flex-direction:column;}
+#composer:focus-within{border-color:#333;}
+#ta{background:transparent;border:0;outline:0;resize:none;color:#e8e8e8;font-size:15px;line-height:1.6;font-family:inherit;flex:1;max-height:180px;width:100%;}
+#ta::placeholder{color:#666;}
+.cbar{display:flex;align-items:center;justify-content:space-between;margin-top:8px;flex:none;}
+.cleft{display:flex;gap:2px;}
+.cic{background:none;border:0;color:#888;font-size:17px;cursor:pointer;width:33px;height:33px;border-radius:8px;display:flex;align-items:center;justify-content:center;}
+.cic:hover{background:#1f1f1f;color:#ccc;}
+#sendBtn{width:38px;height:38px;border-radius:50%;background:#f5442e;border:0;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;}
+#sendBtn:hover{background:#ff5a44;}
+#sendBtn:disabled{background:#3a3a3a;cursor:default;}
+</style>
+</head>
+<body>
+
+<header id="gbar">
+  <div class="gleft">
+    <nav class="gnav">
+      <a href="#">스토리</a><a href="/works.html">내 작품</a><a href="#">이미지</a><a href="/settings.html">설정</a>
+    </nav>
+  </div>
+</header>
+
+<header id="sbar">
+  <div class="tabs">
+    <button class="tab active">에피소드</button>
+  </div>
+  <div class="sdiv"></div>
+  <div class="swrap">
+    <button id="storyBtn"><span id="storyTitle">스토리</span><span class="chev">›</span></button>
+    <div id="storyPanel" class="panel"></div>
+  </div>
+  <div class="sright">
+    <span id="personaTag"></span>
+    <div class="mwrap">
+      <button id="modelBtn"><span class="bolt" id="modelBtnIcon">⚡</span><span id="modelName">모델</span><span class="chev">⌄</span></button>
+      <div id="modelPanel" class="panel"></div>
+    </div>
+    <button class="circleic" title="보관">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></svg>
+    </button>
+    <button class="circleic" id="btn-drawer" title="채팅방 설정">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    </button>
+  </div>
+</header>
+
+<div id="layout">
+  <aside id="side">
+    <div class="slabel">보관함</div>
+    <div class="libbox">
+      <div class="lib-t">보관함이 없어요</div>
+      <div class="lib-d">채팅 목록을 쉽게 관리할 수 있어요</div>
+      <div class="lib-tip">Tip. 자동 정리 시 동일 작품을 한번에 정리할 수 있어요</div>
+      <div class="lib-btns">
+        <button class="lib-btn accent">자동 정리</button>
+        <button class="lib-btn">만들기</button>
+      </div>
+    </div>
+    <div class="chead">
+      <span>채팅 목록</span>
+      <button class="dots" title="더보기">···</button>
+    </div>
+    <div id="chatList"></div>
+  </aside>
+
+  <main id="chatWrap">
+    <div id="scroll"><div id="msgs"></div></div>
+    <div id="chronWarn"><span></span><button id="chronGo">요약하기</button></div>
+    <div id="composerWrap">
+      <div id="composer">
+        <textarea id="ta" rows="1" placeholder="메시지 보내기"></textarea>
+        <div class="cbar">
+          <div class="cleft">
+            <button class="cic" title="특수기능">✳</button>
+            <button class="cic" title="명령">∕</button>
+            <button class="cic" title="변환">⇅</button>
+          </div>
+          <button id="sendBtn" title="전송">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><polygon points="6,4 20,12 6,20"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<aside id="drawer">
+  <div class="dr-h">채팅방 설정</div>
+  <button class="dr-i" data-open="persona"><span class="dr-ic">👤</span>내 페르소나<span class="dr-v" id="drPersona"></span></button>
+  <button class="dr-i" data-open="note"><span class="dr-ic">📝</span>유저 노트<span class="dr-v" id="drNote"></span></button>
+  <button class="dr-i" data-open="memory"><span class="dr-ic">🧠</span>장기 기억<span class="dr-v" id="drMem"></span></button>
+  <button class="dr-i" data-open="chronicle"><span class="dr-ic">📜</span>사건 기록<span class="dr-v" id="drChron"></span></button>
+  <div class="dr-h">시작 설정</div>
+  <div class="dr-flat" id="drStart">기본 설정</div>
+</aside>
+
+<div class="mask" id="pmask"><div class="modal">
+  <div class="modal-h"><h3 id="pmTitle">대화 프로필</h3><button class="modal-x" id="pmX">✕</button></div>
+  <div class="modal-b" id="pmBody"></div>
+  <div class="modal-f" id="pmFoot"></div>
+</div></div>
+
+<div class="mask" id="nmask"><div class="modal">
+  <div class="modal-h"><h3>유저 노트</h3><button class="modal-x" id="nmX">✕</button></div>
+  <div class="modal-b">
+    <div class="fld-d">이 채팅에만 적용되는 규칙이에요. 키워드 없이 매 턴 AI에게 전달됩니다.</div>
+    <textarea id="nmText" rows="9" placeholder="예) 답변은 3문단 이내로. 존댓말 금지."></textarea>
+    <div class="cnt" id="nmCnt">0</div>
+  </div>
+  <div class="modal-f">
+    <button class="mbtn" id="nmCancel">취소</button>
+    <button class="mbtn go" id="nmSave">저장</button>
+  </div>
+</div></div>
+
+<script>
+'use strict';
+
+/* ── 상태 ── */
+let providers = [];   // [{id,name,icon,color,desc,models:[{id,name}]}]
+let problems = [];    // 키는 있는데 못 붙은 제공사
+let currentModel = null;
+let stories = [];
+let currentStory = null;
+let chats = [];
+let chatId = null;
+let log = [];            // [{role:'user'|'assistant', content, fired:[], error?}]
+let generating = false;
+
+/* ── DOM ── */
+const $ = id => document.getElementById(id);
+const storyBtn = $('storyBtn'), storyTitle = $('storyTitle'), storyPanel = $('storyPanel');
+const modelBtn = $('modelBtn'), modelName = $('modelName'), modelBtnIcon = $('modelBtnIcon'), modelPanel = $('modelPanel');
+const chatList = $('chatList'), msgsEl = $('msgs'), scrollEl = $('scroll');
+const ta = $('ta'), sendBtn = $('sendBtn');
+
+/* ── 유틸 ── */
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function safeColor(c){
+  return (typeof c === 'string' && /^[#a-zA-Z0-9().,%\s-]{1,40}$/.test(c)) ? c : '#f5442e';
+}
+const SVG_REFRESH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><polyline points="21 3 21 9 15 9"/></svg>';
+
+/* ── 드롭다운 제어 ── */
+function closePanels(){ modelPanel.classList.remove('open'); storyPanel.classList.remove('open'); }
+function closeRowMenus(){ document.querySelectorAll('.row-menu.open').forEach(m => m.classList.remove('open')); }
+
+modelBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  const willOpen = !modelPanel.classList.contains('open');
+  closePanels();
+  if (willOpen){
+    renderModelPanel(); modelPanel.classList.add('open');
+    // 기본 동작: 창 열 때 최신 사용량으로 갱신. 다 받은 뒤 다시 그린다.
+    loadUsage().then(() => { if (modelPanel.classList.contains('open')) renderModelPanel(); });
+  }
+});
+storyBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  const willOpen = !storyPanel.classList.contains('open');
+  closePanels();
+  if (willOpen){ renderStoryPanel(); storyPanel.classList.add('open'); }
+});
+document.addEventListener('click', e => {
+  // 패널 안 클릭이면 닫지 않는다. innerHTML 을 갈아치우면 e.target 이
+  // DOM 에서 떨어져 나가 closest('.panel') 이 실패하므로 좌표로 판정한다.
+  const inPanel = [modelPanel, storyPanel].some(el => {
+    if (!el.classList.contains('open')) return false;
+    const r = el.getBoundingClientRect();
+    return e.clientX >= r.left && e.clientX <= r.right &&
+           e.clientY >= r.top && e.clientY <= r.bottom;
+  });
+  if (!inPanel && !e.target.closest('#modelBtn') && !e.target.closest('#storyBtn')) closePanels();
+  if (!e.target.closest('.row-menu') && !e.target.closest('.more')) closeRowMenus();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape'){
+    closePanels(); closeRowMenus();
+    pmask.classList.remove('open'); nmask.classList.remove('open');
+    drawer.classList.remove('open');
+  }
+});
+// 아직 안 만든 탭(href="#")만 막는다 — 실제 링크는 그대로 이동
+document.querySelector('.gnav').addEventListener('click', e => {
+  const a = e.target.closest('a');
+  if (a && a.getAttribute('href') === '#') e.preventDefault();
+});
+
+/* ── 모델 ── */
+// 2단: 제공사 목록 → 클릭하면 그 제공사의 모델 목록.
+// currentModel = {pid, mid, name, icon, color}  (pid/mid 가 서버로 간다)
+let openProvider = null;   // 펼친 제공사 id
+
+function renderModelBtn(){
+  if (currentModel){
+    modelName.textContent = currentModel.name || '모델';
+    modelBtnIcon.textContent = currentModel.icon || '⚡';
+    modelBtnIcon.style.color = safeColor(currentModel.color);
+  } else {
+    modelName.textContent = '모델 선택';
+    modelBtnIcon.textContent = '⚡';
+    modelBtnIcon.style.color = '#f5442e';
+  }
+}
+function renderModelPanel(){
+  if (!providers.length){
+    modelPanel.innerHTML = '<div class="panel-empty">쓸 수 있는 모델이 없어요<br>'+
+      '<span style="font-size:11px;color:#666">~/.hermes/.env 에 키를 넣거나 ollama 를 켜세요</span></div>';
+    return;
+  }
+  if (!openProvider){          // 1단 — 제공사. 출처별로 갈라서 보여준다
+    const card = p => {
+      const on = currentModel && currentModel.pid === p.id;
+      // 잔액을 아는 제공사만 붙는다 (없으면 표시 자체가 없다)
+      const bal = usage && usage.balances && usage.balances[p.id];
+      return '<div class="mi' + (on ? ' sel' : '') + '" data-p="' + esc(p.id) + '">' +
+        '<div class="mi-top">' +
+          '<span class="mi-icon" style="color:' + safeColor(p.color) + '">' + esc(p.icon) + '</span>' +
+          '<span class="mi-name">' + esc(p.name) + '</span>' +
+          (bal != null ? '<span class="mi-bal">$' + bal.toFixed(2) + '</span>' : '') +
+          '<span class="mi-tag">' + p.models.length + '</span>' +
+          '<span class="mi-check">›</span>' +
+        '</div>' +
+        (p.desc ? '<div class="mi-desc">' + esc(p.desc) + '</div>' : '') +
+      '</div>';
+    };
+    // 순서 고정 — 빈 묶음은 머리글째 안 나온다
+    const GROUPS = [
+      ['cli',    '구독 (CLI)'],
+      ['hermes', 'Hermes 자동'],
+      ['manual', '직접 추가한 API'],
+      ['local',  '로컬']
+    ];
+    modelPanel.innerHTML =
+      GROUPS.map(([src, label]) => {
+        const items = providers.filter(p => (p.src || 'hermes') === src);
+        if (!items.length) return '';
+        return '<div class="mi-group">' + esc(label) + '</div>' + items.map(card).join('') +
+          (src === 'cli' ? usageHtml() : '');
+      }).join('') +
+      // 키는 있는데 못 붙은 곳은 조용히 숨기지 않는다 (키 오타를 봐야 하므로)
+      problems.map(b => '<div class="mi-bad">⚠ ' + esc(b.name) + ' — ' + esc(b.reason) + '</div>').join('');
+    return;
+  }
+  const p = providers.find(x => x.id === openProvider);
+  if (!p){ openProvider = null; return renderModelPanel(); }
+  modelPanel.innerHTML =
+    '<div class="mi-back" data-back="1">‹ ' + esc(p.name) + '</div>' +
+    p.models.map(m => {
+      const on = currentModel && currentModel.pid === p.id && currentModel.mid === m.id;
+      return '<div class="mi' + (on ? ' sel' : '') + '" data-m="' + esc(m.id) + '">' +
+        '<div class="mi-top">' +
+          '<span class="mi-name">' + esc(m.name) + '</span>' +
+          (on ? '<span class="mi-check">✓</span>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+}
+modelPanel.addEventListener('click', e => {
+  if (e.target.closest('.mi-back')){ openProvider = null; return renderModelPanel(); }
+  const item = e.target.closest('.mi');
+  if (!item) return;
+  if (item.dataset.p){                       // 제공사 → 모델 목록으로
+    openProvider = item.dataset.p;
+    return renderModelPanel();
+  }
+  const p = providers.find(x => x.id === openProvider);
+  const m = p && p.models.find(x => x.id === item.dataset.m);
+  if (!m) return;
+  currentModel = {pid: p.id, mid: m.id, name: m.name, icon: p.icon, color: p.color};
+  openProvider = null;
+  renderModelBtn();
+  closePanels();
+});
+/* ── 대화 프로필 / 유저 노트 ── */
+let personas = [];          // [{id, name, profile}]
+let personaId = null;       // 지금 쓰는 프로필
+let userNote = '';          // 이 채팅에 거는 규칙
+let memory = '';            // 오래된 대화의 요약 (서버가 갱신해 돌려준다)
+let chronicle = '';         // 20턴마다 쌓이는 이 방의 사건 기록
+let loggedTurns = 0;        // 어디까지 기록했는지
+let eventEvery = 20;        // 몇 턴마다 자동 요약할지 (0 = 끔)
+let eventMode = 'append';   // append | full | chars
+let chronAll = false;       // true 면 줄거리를 매 턴 통째로 넣는다
+let tooLong = false;        // 줄거리가 너무 길어졌나 (서버가 판단)
+let warnAt = 3500;
+
+function currentPersona(){ return personas.find(p => p.id === personaId) || null; }
+function personaName(){ const p = currentPersona(); return p ? p.name : ''; }
+// 프롤로그는 서버를 안 거치고 바로 그린다 — 여기서도 같은 치환을 해야 한다
+function subst(text){
+  const char = (currentStory && currentStory.title || '').trim() || '그';
+  const user = personaName() || '당신';
+  return String(text || '')
+    .replace(/\{\{char\}\}|\{char\}/g, char)
+    .replace(/\{\{user\}\}|\{user\}/g, user);
+}
+function renderPersonaTag(){
+  const p = currentPersona();
+  document.getElementById('personaTag').textContent = p ? p.name : '';
+  if (typeof drawer !== 'undefined' && drawer.classList.contains('open')) renderDrawer();
+}
+
+async function loadPersonas(){
+  try{
+    const r = await fetch('/api/personas');
+    personas = r.ok ? await r.json() : [];
+  }catch(_){ personas = []; }
+  if (!Array.isArray(personas)) personas = [];
+  const saved = localStorage.getItem('crack.personaId');
+  personaId = personas.some(p => p.id === saved) ? saved : null;
+  renderPersonaTag();
+}
+
+const pmask = document.getElementById('pmask');
+function openPersona(){ pmask.classList.add('open'); renderPersonaList(); }
+function closePersona(){ pmask.classList.remove('open'); }
+
+function renderPersonaList(){
+  document.getElementById('pmTitle').textContent = '내 페르소나';
+  const b = document.getElementById('pmBody');
+  b.innerHTML = personas.length
+    ? personas.map(p =>
+        '<div class="pcard' + (p.id === personaId ? ' cur' : '') + '" data-id="' + esc(p.id) + '">' +
+          '<div class="pcard-t">' +
+            (p.id === personaId ? '<span class="now">현재</span>' : '') +
+            '<span class="pcard-n">' + esc(p.name) + '</span>' +
+            '<button class="pdots" data-act="edit" title="수정">⋯</button>' +
+            '<button class="pdots" data-act="del" title="삭제">✕</button>' +
+          '</div>' +
+          '<div class="pcard-p' + (p.profile ? '' : ' dim') + '">' +
+            esc(p.profile || '정보 없음') + '</div>' +
+        '</div>').join('')
+    : '<div class="pempty">페르소나가 없어요. 아래에서 추가해 주세요.</div>';
+  b.innerHTML += '<button class="padd" id="pmAdd">＋ 페르소나 추가</button>';
+  document.getElementById('pmFoot').innerHTML = '';
+
+  b.querySelectorAll('.pcard').forEach(c => {
+    const id = c.dataset.id;
+    // 카드를 누르면 그 프로필로 바꾼다
+    c.onclick = () => {
+      personaId = id;
+      localStorage.setItem('crack.personaId', id);
+      renderPersonaTag(); renderPersonaList(); renderMessages();
+    };
+    c.querySelector('[data-act=edit]').onclick = e => {
+      e.stopPropagation(); renderPersonaForm(personas.find(p => p.id === id));
+    };
+    c.querySelector('[data-act=del]').onclick = async e => {
+      e.stopPropagation();
+      const p = personas.find(x => x.id === id);
+      if (!confirm('「' + p.name + '」 페르소나를 삭제할까요?')) return;
+      try{ await fetch('/api/personas/' + encodeURIComponent(id), {method:'DELETE'}); }catch(_){}
+      if (personaId === id){ personaId = null; localStorage.removeItem('crack.personaId'); }
+      await loadPersonas(); renderPersonaList(); renderMessages();
+    };
+  });
+  document.getElementById('pmAdd').onclick = () => renderPersonaForm(null);
+}
+
+function renderPersonaForm(p){
+  const edit = !!p;
+  document.getElementById('pmTitle').textContent = edit ? '페르소나 수정' : '페르소나 추가';
+  document.getElementById('pmBody').innerHTML =
+    '<div class="fld-l">이름 <span class="req">*</span></div>' +
+    '<div class="fld-d">작품 내에서 나를 어떻게 부를지 입력해 주세요</div>' +
+    '<input type="text" id="pfName" autocomplete="off" value="' + esc(p ? p.name : '') + '">' +
+    '<div class="cnt" id="pfNameC"></div>' +
+    '<div class="fld-l">정보</div>' +
+    '<div class="fld-d">작품 내에 반영될 나의 정보를 입력해 주세요</div>' +
+    '<textarea id="pfInfo" rows="6"></textarea>' +
+    '<div class="cnt" id="pfInfoC"></div>' +
+    '<div class="fld-d" id="pfErr" style="color:#ff5a44;margin-top:8px"></div>';
+  document.getElementById('pfInfo').value = p ? (p.profile || '') : '';
+  document.getElementById('pmFoot').innerHTML =
+    '<button class="mbtn" id="pfCancel">취소</button>' +
+    '<button class="mbtn go" id="pfSave">' + (edit ? '수정' : '추가') + '</button>';
+
+  const nm = document.getElementById('pfName'), inf = document.getElementById('pfInfo');
+  // 상한 없음 — 현재 길이만 보여준다
+  const cnt = () => {
+    document.getElementById('pfNameC').textContent = nm.value.length;
+    document.getElementById('pfInfoC').textContent = inf.value.length;
+  };
+  cnt(); nm.oninput = cnt; inf.oninput = cnt;
+  nm.focus();
+
+  document.getElementById('pfCancel').onclick = () => renderPersonaList();
+  document.getElementById('pfSave').onclick = async () => {
+    const body = {name: nm.value.trim(), profile: inf.value.trim()};
+    if (edit) body.id = p.id;
+    if (!body.name){ document.getElementById('pfErr').textContent = '이름을 입력해 주세요'; return; }
+    let saved = null;
+    try{
+      const r = await fetch('/api/personas', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)});
+      const d = await r.json();
+      if (!r.ok){ document.getElementById('pfErr').textContent = d.error || '저장하지 못했어요'; return; }
+      saved = d;
+    }catch(_){ document.getElementById('pfErr').textContent = '서버에 닿지 못했어요'; return; }
+    await loadPersonas();
+    // 새로 만든 건 바로 현재로 — 만들자마자 또 눌러야 하는 건 번거롭다
+    if (!edit && saved){ personaId = saved.id; localStorage.setItem('crack.personaId', saved.id); }
+    renderPersonaTag(); renderPersonaList(); renderMessages();
+  };
+}
+
+/* ── 오른쪽 서랍 ── */
+const drawer = document.getElementById('drawer');
+function renderDrawer(){
+  const p = currentPersona();
+  const pv = document.getElementById('drPersona');
+  pv.textContent = p ? p.name : '없음';
+  pv.classList.toggle('on', !!p);
+  const nv = document.getElementById('drNote');
+  nv.textContent = userNote.trim() ? '켜짐' : '없음';
+  nv.classList.toggle('on', !!userNote.trim());
+  const mv = document.getElementById('drMem');
+  mv.textContent = memory.trim() ? memory.trim().length + '자' : '없음';
+  mv.classList.toggle('on', !!memory.trim());
+  const cv = document.getElementById('drChron');
+  cv.textContent = !chronicle.trim() ? '없음'
+    : (loggedTurns ? '~' + loggedTurns + '턴' : chronicle.trim().length + '자');
+  cv.classList.toggle('on', !!chronicle.trim());
+  const st = currentStory && currentStory.starts && currentStory.starts[0];
+  document.getElementById('drStart').textContent = (st && st.name) || '기본 설정';
+}
+function toggleDrawer(){
+  drawer.classList.toggle('open');
+  if (drawer.classList.contains('open')) renderDrawer();
+}
+document.getElementById('btn-drawer').onclick = e => { e.stopPropagation(); toggleDrawer(); };
+// 서랍 밖을 누르면 닫는다 (모달이 떠 있을 땐 놔둔다)
+document.addEventListener('click', e => {
+  if (!drawer.classList.contains('open')) return;
+  if (drawer.contains(e.target)) return;
+  if (e.target.closest('.mask')) return;
+  drawer.classList.remove('open');
+});
+drawer.addEventListener('click', e => {
+  const b = e.target.closest('[data-open]');
+  if (!b) return;
+  const what = b.dataset.open;
+  if (what === 'persona') openPersona();
+  else if (what === 'note') openNote();
+  else if (what === 'memory') openMemory();
+  else if (what === 'chronicle') openChronicle();
+});
+
+// 줄거리가 프롬프트를 잡아먹기 시작하면 알린다 — 모르고 계속 쌓는 게 제일 나쁘다
+function renderWarn(){
+  const bar = document.getElementById('chronWarn');
+  bar.classList.toggle('open', tooLong);
+  if (tooLong) bar.firstElementChild.textContent =
+    '사건 기록이 ' + chronicle.length + '자예요 (' + warnAt + '자 넘음). 매 턴 통째로 들어가니 요약하는 게 좋아요.';
+}
+
+/* 사건 기록 — 정한 턴마다 자동으로 쌓인다. 잘못 적히면 손으로 고칠 수 있어야 한다. */
+function openChronicle(){
+  document.getElementById('pmTitle').textContent = '사건 기록';
+  const opt = (v, t, cur) => '<option value="' + v + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + t + '</option>';
+  document.getElementById('pmBody').innerHTML =
+    '<div class="fld-d">이 채팅방에만 적용돼요. 정한 턴마다 자동으로 쌓이고, 아래 버튼으로 지금 바로 요약할 수도 있어요.</div>' +
+    '<div class="fld-l">자동 요약 주기</div>' +
+    '<select id="chEvery">' +
+      [[0,'끔 (직접 누를 때만)'],[10,'10턴마다'],[20,'20턴마다'],[30,'30턴마다'],[50,'50턴마다']]
+        .map(([v,t]) => opt(v, t, eventEvery)).join('') + '</select>' +
+    '<div class="fld-l">요약 방식</div>' +
+    '<select id="chMode">' +
+      opt('append', '누적분 추가 — 새 구간만 요약해 덧붙임', eventMode) +
+      opt('full', '전체 — 처음부터 하나로 다시 씀', eventMode) +
+      opt('chars', '인물별 — 등장인물마다 나눠서 정리', eventMode) + '</select>' +
+    '<div class="fld-l">불러오는 방식</div>' +
+    '<select id="chScope">' +
+      opt('rel', '관련 있을 때만 — 지금 대화와 겹치는 부분만 넣음', chronAll ? 'all' : 'rel') +
+      opt('all', '항상 전부 — 매 턴 줄거리를 통째로 넣음', chronAll ? 'all' : 'rel') + '</select>' +
+    '<div class="fld-l">줄거리</div>' +
+    '<textarea id="chText" rows="11"></textarea>' +
+    '<div class="cnt" id="chCnt"></div>';
+  document.getElementById('chEvery').onchange = e => { eventEvery = +e.target.value; };
+  document.getElementById('chMode').onchange = e => { eventMode = e.target.value; };
+  document.getElementById('chScope').onchange = e => { chronAll = e.target.value === 'all'; };
+  const t = document.getElementById('chText');
+  t.value = chronicle;
+  const c = () => { document.getElementById('chCnt').textContent = t.value.length; };
+  c(); t.oninput = c;
+  document.getElementById('pmFoot').innerHTML =
+    '<button class="mbtn" id="chFull" title="기존 줄거리 + 새 대화를 종합해 처음부터 다시 요약">전체</button>' +
+    '<button class="mbtn" id="chChars" title="등장인물마다 나눠서 정리">인물별</button>' +
+    '<button class="mbtn" id="chAppend" title="새 대화만 요약해 기존 줄거리에 추가">누적분 추가</button>' +
+    '<button class="mbtn" id="chClear">비우기</button>' +
+    '<button class="mbtn go" id="chSave">저장</button>';
+  // 비우면 기록 지점도 되돌린다 — 안 그러면 다음 20턴까지 아무것도 안 쌓인다
+  document.getElementById('chClear').onclick = () => { t.value = ''; c(); };
+  document.getElementById('chSave').onclick = async () => {
+    chronicle = t.value;
+    if (!chronicle.trim()) loggedTurns = 0;
+    tooLong = chronicle.length > warnAt;
+    renderWarn();
+    // 주기·방식은 위 select 의 onchange 에서 이미 반영됐다
+    renderNoteTag();
+    closePersona();
+    if (chatId) await saveChat();
+  };
+  const recap = async mode => {
+    const btns = document.querySelectorAll('#pmFoot .mbtn');
+    btns.forEach(x => x.disabled = true);
+    const err = document.getElementById('chCnt');
+    err.textContent = '요약하는 중…';
+    try{
+      const r = await fetch('/api/recap', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          mode,
+          model: currentModel ? currentModel.pid + '/' + currentModel.mid : null,
+          // 화면에 보이는 대화 그대로 (오류 메시지는 뺀다)
+          history: log.filter(m => !m.error).map(m => ({role:m.role, content:m.content})),
+          chronicle: t.value,
+          logged_turns: loggedTurns
+        })});
+      const d = await r.json();
+      if (!r.ok){ err.textContent = d.error || '요약하지 못했어요'; return; }
+      t.value = d.chronicle;
+      loggedTurns = d.logged_turns;
+      tooLong = !!d.too_long;
+      if (d.warn_at) warnAt = d.warn_at;
+      c(); renderWarn();
+    }catch(_){ err.textContent = '서버에 닿지 못했어요'; }
+    finally{ btns.forEach(x => x.disabled = false); }
+  };
+  document.getElementById('chFull').onclick = () => recap('full');
+  document.getElementById('chChars').onclick = () => recap('chars');
+  document.getElementById('chAppend').onclick = () => recap('append');
+  pmask.classList.add('open');
+}
+
+/* 장기 기억 — 요약본. 손으로 고칠 수 있어야 한다(잘못 요약되면 그게 계속 따라온다). */
+function openMemory(){
+  document.getElementById('pmTitle').textContent = '장기 기억';
+  document.getElementById('pmBody').innerHTML =
+    '<div class="fld-d">오래된 대화의 요약이에요. 직접 고치거나 지울 수 있어요.</div>' +
+    '<textarea id="memText" rows="12"></textarea>' +
+    '<div class="cnt" id="memCnt"></div>';
+  const t = document.getElementById('memText');
+  t.value = memory;
+  const c = () => { document.getElementById('memCnt').textContent = t.value.length; };
+  c(); t.oninput = c;
+  document.getElementById('pmFoot').innerHTML =
+    '<button class="mbtn" id="memClear">비우기</button>' +
+    '<button class="mbtn go" id="memSave">저장</button>';
+  document.getElementById('memClear').onclick = () => { t.value = ''; c(); };
+  document.getElementById('memSave').onclick = async () => {
+    memory = t.value;
+    renderNoteTag();
+    closePersona();
+    if (chatId) await saveChat();
+  };
+  pmask.classList.add('open');
+}
+
+document.getElementById('chronGo').onclick = openChronicle;
+document.getElementById('pmX').onclick = closePersona;
+pmask.onclick = e => { if (e.target === pmask) closePersona(); };
+
+/* 유저 노트 */
+const nmask = document.getElementById('nmask');
+function openNote(){
+  const t = document.getElementById('nmText');
+  t.value = userNote;
+  document.getElementById('nmCnt').textContent = t.value.length;
+  t.oninput = () => { document.getElementById('nmCnt').textContent = t.value.length; };
+  nmask.classList.add('open');
+  t.focus();
+}
+document.getElementById('nmX').onclick = () => nmask.classList.remove('open');
+document.getElementById('nmCancel').onclick = () => nmask.classList.remove('open');
+nmask.onclick = e => { if (e.target === nmask) nmask.classList.remove('open'); };
+document.getElementById('nmSave').onclick = async () => {
+  userNote = document.getElementById('nmText').value;
+  renderNoteTag();
+  nmask.classList.remove('open');
+  if (chatId) await saveChat();   // 이미 시작한 방이면 바로 남긴다
+};
+// 켜둔 줄 모르고 쓰는 게 제일 헷갈린다 — 서랍에 상태를 적는다
+function renderNoteTag(){
+  if (drawer.classList.contains('open')) renderDrawer();
+}
+
+let usage = null;
+let usageTimer = null;
+// 설정의 '자동 새로고침' 주기(초). 0 = 끔. 모델 창 열 때 조회는 항상 한다.
+function usageEverySec(){
+  const v = parseInt(localStorage.getItem('crack.usagePoll') || '0', 10);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+function startUsagePolling(){
+  clearInterval(usageTimer); usageTimer = null;
+  const sec = usageEverySec();
+  if (!sec) return;
+  usageTimer = setInterval(async () => {
+    // 안 보이는 탭에서까지 돌 이유가 없다
+    if (document.hidden) return;
+    await loadUsage();
+    if (modelPanel.classList.contains('open')) renderModelPanel();
+  }, sec * 1000);
+}
+async function loadUsage(){
+  // 구독 사용량. 없으면(=API 키 사용자, 로그인 안 됨) 아무것도 안 그린다.
+  try{
+    const r = await fetch('/api/usage');
+    const d = r.ok ? await r.json() : null;
+    usage = (d && Object.keys(d).length) ? d : null;
+  }catch(_){ usage = null; }
+}
+function usageHtml(){
+  if (!usage || !usage.rows || !usage.rows.length) return '';
+  const rows = usage.rows.map(u =>
+    '<div class="u-row s-' + esc(u.severity || 'normal') + '">' +
+      '<span class="u-lb">' + esc(u.label) + '</span>' +
+      '<span class="u-bar"><span class="u-fill" style="width:' + Math.min(100, u.pct) + '%"></span></span>' +
+      '<span class="u-pct">' + u.pct + '%</span></div>').join('');
+  return '<div class="mi-usage">' + rows + '</div>';
+}
+
+async function loadModels(){
+  try{
+    const res = await fetch('/api/models');
+    if (!res.ok) throw 0;
+    const d = await res.json();
+    providers = Array.isArray(d.providers) ? d.providers : [];
+    problems = Array.isArray(d.problems) ? d.problems : [];
+  }catch(_){ providers = []; problems = []; }
+  // 설정 페이지에서 고른 기본 모델을 먼저 쓴다. 없거나 사라졌으면 첫 모델.
+  const saved = String(localStorage.getItem('crack.defaultModel') || '');
+  const [spid, ...srest] = saved.split('/');
+  const sp = saved && providers.find(x => x.id === spid);
+  const sm = sp && sp.models.find(x => x.id === srest.join('/'));
+  const p = providers[0];
+  currentModel = sm ? {pid:sp.id, mid:sm.id, name:sm.name, icon:sp.icon, color:sp.color}
+              : p ? {pid:p.id, mid:p.models[0].id, name:p.models[0].name,
+                      icon:p.icon, color:p.color} : null;
+  renderModelBtn();
+}
+
+/* ── 스토리 ── */
+function renderStoryPanel(){
+  if (!stories.length){ storyPanel.innerHTML = '<div class="panel-empty">스토리가 없어요</div>'; return; }
+  storyPanel.innerHTML = stories.map((s, i) =>
+    '<div class="si' + (currentStory && String(currentStory.id) === String(s.id) ? ' sel' : '') + '" data-i="' + i + '">' +
+      esc(s.title || '제목 없음') +
+    '</div>'
+  ).join('');
+}
+storyPanel.addEventListener('click', async e => {
+  const item = e.target.closest('.si');
+  if (!item) return;
+  const s = stories[+item.dataset.i];
+  if (!s) return;
+  closePanels();
+  if (currentStory && String(currentStory.id) === String(s.id)) return;
+  await loadStory(s.id);
+  startNewSession();
+  renderChats();
+});
+async function loadDrafts(){
+  try{
+    const res = await fetch('/api/drafts');
+    if (!res.ok) throw 0;
+    const d = await res.json();
+    stories = Array.isArray(d) ? d : [];
+  }catch(_){ stories = []; }
+}
+async function loadStory(id){
+  try{
+    const res = await fetch('/api/drafts/' + encodeURIComponent(id));
+    if (!res.ok) return false;
+    currentStory = await res.json();
+    storyTitle.textContent = (currentStory && currentStory.title) || '스토리';
+    return true;
+  }catch(_){ return false; }
+}
+function startNewSession(){
+  chatId = null;
+  log = [];
+  userNote = '';
+  memory = '';
+  chronicle = '';
+  loggedTurns = 0;
+  eventEvery = 20;
+  eventMode = 'append';
+  chronAll = false;
+  tooLong = false;
+  renderNoteTag();
+  renderWarn();
+  const st = currentStory && currentStory.starts && currentStory.starts[0];
+  if (st && st.prologue) log.push({role:'assistant', content:subst(String(st.prologue)), fired:[]});
+  renderMessages();
+}
+
+/* ── 채팅 목록 ── */
+async function loadChats(){
+  try{
+    const res = await fetch('/api/chats');
+    if (!res.ok) throw 0;
+    const d = await res.json();
+    chats = Array.isArray(d) ? d : [];
+  }catch(_){ chats = []; }
+  renderChats();
+}
+function renderChats(){
+  if (!chats.length){
+    chatList.innerHTML = '<div class="no-chats">채팅이 없어요</div>';
+    return;
+  }
+  chatList.innerHTML = chats.map(c =>
+    '<div class="chat-row' + (chatId != null && String(c.id) === String(chatId) ? ' sel' : '') + '" data-id="' + esc(c.id) + '">' +
+      '<div class="thumb">' + esc(String(c.title || '채팅').trim().charAt(0) || '채') + '</div>' +
+      '<div class="meta">' +
+        '<div class="t">' + esc(c.title || '') + '</div>' +
+        '<div class="p">' + esc(c.preview || '') + '</div>' +
+      '</div>' +
+      '<button class="more" title="더보기">⋮</button>' +
+      '<div class="row-menu"><button class="del">삭제</button></div>' +
+    '</div>'
+  ).join('');
+}
+chatList.addEventListener('click', async e => {
+  const more = e.target.closest('.more');
+  if (more){
+    e.stopPropagation();
+    const menu = more.closest('.chat-row').querySelector('.row-menu');
+    const wasOpen = menu.classList.contains('open');
+    closeRowMenus();
+    if (!wasOpen) menu.classList.add('open');
+    return;
+  }
+  const del = e.target.closest('.del');
+  if (del){
+    e.stopPropagation();
+    const id = del.closest('.chat-row').dataset.id;
+    const nm = del.closest('.chat-row').querySelector('.t').textContent.trim();
+    closeRowMenus();
+    // 복구 수단이 없다 — 파일을 바로 지운다. 물어보는 게 유일한 안전장치다
+    if (!confirm('「' + nm + '」 채팅을 삭제할까요?\n삭제하면 되돌릴 수 없어요.')) return;
+    try{ await fetch('/api/chats/' + encodeURIComponent(id), {method:'DELETE'}); }catch(_){}
+    // 보고 있던 방을 지웠으면 화면도 비운다.
+    // 안 그러면 다음 응답이 같은 id 로 저장돼 되살아난다.
+    if (chatId != null && String(chatId) === String(id)) startNewSession();
+    loadChats();
+    return;
+  }
+  const row = e.target.closest('.chat-row');
+  if (row) openChat(row.dataset.id);
+});
+async function openChat(id){
+  if (generating) return;
+  let data;
+  try{
+    const res = await fetch('/api/chats/' + encodeURIComponent(id));
+    if (!res.ok) return;
+    data = await res.json();
+  }catch(_){ return; }
+  chatId = data.id;
+  // 유저 노트·프로필은 채팅마다 따로 — 방을 옮기면 그 방 것으로 갈아낀다
+  userNote = String(data.usernote || '');
+  memory = String(data.memory || '');
+  chronicle = String(data.chronicle || '');
+  loggedTurns = +(data.logged_turns || 0);
+  eventEvery = data.event_every == null ? 20 : +data.event_every;
+  eventMode = ['full', 'chars'].includes(data.event_mode) ? data.event_mode : 'append';
+  chronAll = !!data.chron_all;
+  tooLong = chronicle.length > warnAt;
+  renderWarn();
+  if (data.persona_id && personas.some(p => p.id === data.persona_id)){
+    personaId = data.persona_id;
+    localStorage.setItem('crack.personaId', personaId);
+    renderPersonaTag();
+  }
+  renderNoteTag();
+  if (data.model){
+    // 저장된 "제공사/모델" 을 카탈로그에서 되찾는다. 사라진 모델이면 무시.
+    const [pid, ...rest] = String(data.model).split('/');
+    const mid = rest.join('/');
+    const p = providers.find(x => x.id === pid);
+    const m = p && p.models.find(x => x.id === mid);
+    if (m){
+      currentModel = {pid:p.id, mid:m.id, name:m.name, icon:p.icon, color:p.color};
+      renderModelBtn();
+    }
+  }
+  if (data.story_id != null && (!currentStory || String(currentStory.id) !== String(data.story_id))){
+    await loadStory(data.story_id);
+  }
+  log = (Array.isArray(data.log) ? data.log : []).map(m => ({
+    role: m.role === 'user' ? 'user' : 'assistant',
+    content: String(m.content || ''),
+    fired: Array.isArray(m.fired) ? m.fired : []
+  }));
+  renderMessages();
+  renderChats();
+}
+
+/* ── 메시지 렌더 ── */
+function makeActionRow(){
+  const row = document.createElement('div');
+  row.className = 'acts';
+  const cont = document.createElement('button');
+  cont.className = 'cont-btn';
+  cont.innerHTML = '<span class="bolt">⚡</span> 이어서 생성';
+  cont.addEventListener('click', () => send('계속'));
+  const right = document.createElement('div');
+  right.className = 'aright';
+  right.innerHTML = '<span class="cmp">답변 비교 2/2 ⌄</span>' +
+    '<button class="aic" title="다시 생성">' + SVG_REFRESH + '</button>' +
+    '<button class="aic" title="더보기">···</button>';
+  right.querySelector('button').addEventListener('click', regenerate);
+  row.appendChild(cont);
+  row.appendChild(right);
+  return row;
+}
+function renderMessages(){
+  msgsEl.innerHTML = '';
+  const lastEntry = log[log.length - 1];
+  const showActs = !generating && !!lastEntry && lastEntry.role === 'assistant' && !lastEntry.error;
+  log.forEach((m, i) => {
+    const div = document.createElement('div');
+    if (m.role === 'user'){
+      div.className = 'msg user';
+      const b = document.createElement('div');
+      b.className = 'bubble';
+      b.textContent = m.content;
+      div.appendChild(b);
+    } else {
+      div.className = 'msg assistant' + (m.error ? ' error' : '');
+      String(m.content).split('\n').forEach(p => {
+        if (!p.trim()) return;
+        const pe = document.createElement('p');
+        pe.textContent = p;
+        div.appendChild(pe);
+      });
+      if (m.fired && m.fired.length){
+        const f = document.createElement('div');
+        f.className = 'fired';
+        // 어떤 노트가 왜 붙었는지 — 제목 옆에 그 키워드를 붙여 보여준다
+        m.fired.forEach(t => {
+          const note = (currentStory && currentStory.notes || []).find(n => n.title === t);
+          const chip = document.createElement('span');
+          chip.className = 'fired-chip';
+          chip.textContent = '📖 ' + t;
+          if (note && note.keywords && note.keywords.length){
+            chip.title = '키워드: ' + note.keywords.join(', ');
+          }
+          f.appendChild(chip);
+        });
+        div.appendChild(f);
+      }
+      if (showActs && i === log.length - 1) div.appendChild(makeActionRow());
+    }
+    msgsEl.appendChild(div);
+  });
+  if (generating){
+    const g = document.createElement('div');
+    g.className = 'generating';
+    g.textContent = '생성 중…';
+    msgsEl.appendChild(g);
+  }
+  sendBtn.disabled = generating;
+  scrollEl.scrollTop = scrollEl.scrollHeight;
+}
+
+/* ── 대화 ── */
+async function send(text){
+  text = String(text || '').trim();
+  if (!text || generating) return;
+  log.push({role:'user', content:text, fired:[]});
+  await callChat(text);
+}
+async function regenerate(){
+  if (generating) return;
+  let lastUser = null;
+  for (let i = log.length - 1; i >= 0; i--){
+    if (log[i].role === 'user'){ lastUser = log[i].content; break; }
+  }
+  if (lastUser == null) return;
+  if (log.length && log[log.length - 1].role === 'assistant') log.pop();
+  await callChat(lastUser);
+}
+async function callChat(message){
+  generating = true;
+  renderMessages();
+  const entries = log.filter(m => !m.error);
+  if (entries.length && entries[entries.length - 1].role === 'user' && entries[entries.length - 1].content === message) entries.pop();
+  try{
+    const res = await fetch('/api/chat', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model: currentModel ? currentModel.pid + '/' + currentModel.mid : null,
+        persona: currentPersona() || '',
+        usernote: userNote,
+        memory: memory,
+        chronicle: chronicle,
+        logged_turns: loggedTurns,
+        event_every: eventEvery,
+        event_mode: eventMode,
+        chron_all: chronAll,
+        max_tokens: +(localStorage.getItem('crack.maxTokens') || 0),
+        keep_turns: +(localStorage.getItem('crack.keepTurns') || 0),
+        story: currentStory,
+        history: entries.map(m => ({role:m.role, content:m.content})),
+        message: message
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data && data.error) || ('요청 실패 (' + res.status + ')'));
+    if (typeof data.memory === 'string') memory = data.memory;
+    if (typeof data.chronicle === 'string') chronicle = data.chronicle;
+    tooLong = !!data.too_long;
+    if (data.warn_at) warnAt = data.warn_at;
+    if (typeof data.logged_turns === 'number') loggedTurns = data.logged_turns;
+    renderNoteTag();   // 요약이 갱신되면 서랍의 '장기 기억' 글자수가 바뀐다
+    renderWarn();
+    log.push({role:'assistant', content:String(data.reply || ''), fired:Array.isArray(data.fired) ? data.fired : []});
+    await saveChat();
+  }catch(err){
+    log.push({role:'assistant', content:'[오류] ' + (err && err.message ? err.message : String(err)), error:true, fired:[]});
+  }
+  generating = false;
+  renderMessages();
+}
+async function saveChat(){
+  try{
+    const last = log[log.length - 1] || {content:''};
+    const res = await fetch('/api/chats', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        id: chatId,
+        title: (currentStory && currentStory.title) || '새 채팅',
+        preview: String(last.content || '').slice(0, 40),
+        story_id: currentStory ? currentStory.id : null,
+        usernote: userNote,
+        memory: memory,
+        chronicle: chronicle,
+        logged_turns: loggedTurns,
+        event_every: eventEvery,
+        event_mode: eventMode,
+        chron_all: chronAll,
+        persona_id: personaId,
+        model: currentModel ? currentModel.pid + '/' + currentModel.mid : null,
+        log: log.filter(m => !m.error).map(m => ({role:m.role, content:m.content, fired:m.fired || []}))
+      })
+    });
+    if (res.ok){
+      const d = await res.json().catch(() => ({}));
+      if (d && d.id != null) chatId = d.id;
+    }
+  }catch(_){}
+  loadChats();
+}
+
+/* ── 입력창 ── */
+function autosize(){
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 180) + 'px';
+}
+ta.addEventListener('input', autosize);
+ta.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing){
+    e.preventDefault();
+    doSend();
+  }
+});
+sendBtn.addEventListener('click', doSend);
+function doSend(){
+  const v = ta.value;
+  if (!v.trim() || generating) return;
+  ta.value = '';
+  autosize();
+  send(v);
+}
+
+/* ── 초기화 ── */
+(async function init(){
+  await Promise.all([loadModels(), loadUsage(), loadPersonas()]);
+  startUsagePolling();
+  await Promise.all([loadDrafts(), loadChats()]);
+  if (stories.length) await loadStory(stories[0].id);
+  else storyTitle.textContent = '스토리 없음';
+  startNewSession();
+})();
+</script>
+</body>
+</html>

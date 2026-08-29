@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>설정 — 크랙</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  background:#0d0d0d;color:#e8e8e8;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+button{font-family:inherit;cursor:pointer;}
+::-webkit-scrollbar{width:10px;}
+::-webkit-scrollbar-thumb{background:#2b2b2b;border-radius:6px;border:2px solid #0d0d0d;}
+::-webkit-scrollbar-track{background:transparent;}
+
+#gbar{height:40px;flex:none;display:flex;align-items:center;padding:0 14px;}
+.gnav{display:flex;gap:16px;}
+.gnav a{color:#8a8a8a;font-size:13px;text-decoration:none;}
+.gnav a:hover{color:#d0d0d0;}
+.gnav a.on{color:#e8e8e8;font-weight:600;}
+
+#scroll{flex:1;overflow-y:auto;}
+.page{max-width:720px;margin:0 auto;padding:28px 20px 60px;}
+h1{font-size:26px;letter-spacing:-.5px;margin-bottom:26px;}
+.card{background:#141414;border:1px solid #1f1f1f;border-radius:12px;padding:18px 18px 16px;margin-bottom:16px;}
+.card h2{font-size:15px;font-weight:700;margin-bottom:4px;}
+.card .desc{color:#7a7a7a;font-size:12.5px;line-height:1.6;margin-bottom:14px;}
+select{width:100%;appearance:none;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;
+  color:#e8e8e8;padding:11px 12px;font-size:14px;outline:none;cursor:pointer;font-family:inherit;}
+select:focus{border-color:#4a4a4a;}
+.line{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1c1c1c;font-size:13px;}
+.line:last-child{border-bottom:0;}
+.line .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.line .val{color:#8a8a8a;font-size:12px;}
+.ok{color:#4ac97e;}
+.bad{color:#ff7a68;}
+.btn{background:transparent;border:1px solid #333;color:#ccc;border-radius:8px;padding:9px 14px;font-size:13px;}
+.btn:hover{background:#1d1d1d;color:#fff;}
+.btn.danger{border-color:#5a2420;color:#ff7a68;}
+.btn.danger:hover{background:#241413;}
+.row-btn{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.form{display:flex;flex-direction:column;gap:8px;margin-top:12px;}
+.form input{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;
+  color:#e8e8e8;padding:10px 12px;font-size:13px;outline:none;font-family:inherit;}
+.form input:focus{border-color:#4a4a4a;}
+.form input::placeholder{color:#5a5a5a;}
+.fld{display:flex;flex-direction:column;gap:4px;}
+.form input.bad{border-color:#f5442e;}
+.err{color:#ff5a44;font-size:12px;min-height:0;display:none;}
+.err.show{display:block;}
+.msg{font-size:12px;}
+.msg.err{color:#ff7a68;}
+.msg.ok{color:#4ac97e;}
+.x{background:transparent;border:0;color:#777;font-size:16px;line-height:1;padding:2px 6px;}
+.x:hover{color:#ff7a68;}
+#toast{position:fixed;left:50%;bottom:36px;transform:translateX(-50%);background:#222;border:1px solid #333;
+  color:#eee;padding:10px 18px;border-radius:999px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;}
+#toast.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<header id="gbar">
+  <nav class="gnav">
+    <a href="/chat.html">스토리</a><a href="/works.html">내 작품</a><a href="#">이미지</a><a class="on" href="/settings.html">설정</a>
+  </nav>
+</header>
+
+<div id="scroll"><div class="page">
+  <h1>설정</h1>
+
+  <div class="card">
+    <h2>기본 모델</h2>
+    <div class="desc">새 채팅을 시작할 때 쓸 모델. 채팅방에서 바꾼 건 그 방에만 남습니다.</div>
+    <select id="model"><option>불러오는 중…</option></select>
+  </div>
+
+  <div class="card">
+    <h2>최대 출력 길이</h2>
+    <div class="desc">한 번에 생성할 최대 토큰 수. <b>제한 없음</b>이면 값을 안 보내고 모델 기본값을 씁니다 —
+      사고 모델은 예산을 사고에 먼저 써서 빈 답이 나올 수 있으니 이쪽이 안전합니다.</div>
+    <select id="maxtok">
+      <option value="0">제한 없음 (모델 기본값)</option>
+      <option value="1024">1,024</option>
+      <option value="2048">2,048</option>
+      <option value="4096">4,096</option>
+      <option value="8192">8,192</option>
+    </select>
+  </div>
+
+  <div class="card">
+    <h2>장기 기억</h2>
+    <div class="desc">대화가 길어지면 오래된 turn을 요약해 <code>[장기 기억]</code>으로 접어 넣습니다.
+      최근 N턴은 원문 그대로 남습니다. 요약에도 모델 호출이 한 번 듭니다.</div>
+    <select id="keepturns">
+      <option value="0">끔 (전체 대화를 매번 보냄)</option>
+      <option value="10">최근 10턴 유지</option>
+      <option value="20">최근 20턴 유지</option>
+      <option value="40">최근 40턴 유지</option>
+    </select>
+  </div>
+
+  <div class="card">
+    <h2>사용량 자동 새로고침</h2>
+    <div class="desc">사용량·잔액 조회는 모델을 부르지 않아 <b>토큰을 쓰지 않습니다</b>. 모델 창을 열 때는 주기와 상관없이 항상 새로 불러옵니다.</div>
+    <select id="poll">
+      <option value="0">끔 (모델 창 열 때만)</option>
+      <option value="60">1분마다</option>
+      <option value="300">5분마다</option>
+    </select>
+  </div>
+
+  <div class="card">
+    <h2>제공사 연결</h2>
+    <div class="desc"><code>~/.hermes/.env</code>에서 자동으로 읽은 것들입니다. 여기서 키를 넣거나 보지 않습니다.</div>
+    <div id="providers"></div>
+  </div>
+
+  <div class="card">
+    <h2>API 직접 추가</h2>
+    <div class="desc">OpenAI 호환 주소면 뭐든 됩니다(<code>/v1</code>까지). 저장 전에 실제로 모델 목록을 불러와 확인합니다.
+      키는 <code>data/providers.json</code>에 평문으로 저장되고 이 페이지로 다시 내려오지 않습니다.</div>
+    <div id="manual"></div>
+    <div class="form">
+      <input id="p-name" placeholder="이름 (예: 내 서버)" autocomplete="off">
+      <div class="fld">
+        <input id="p-url" placeholder="https://api.example.com/v1" autocomplete="off" spellcheck="false">
+        <div class="err" id="e-url"></div>
+      </div>
+      <div class="fld">
+        <input id="p-key" type="password" placeholder="API 키 (필요 없으면 비워 두세요)" autocomplete="off">
+        <div class="err" id="e-key"></div>
+      </div>
+      <div class="row-btn">
+        <button class="btn" id="p-add">확인하고 추가</button>
+        <span class="msg" id="p-msg"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>데이터</h2>
+    <div class="desc">전부 <code>크랙빌더/data</code> 폴더의 JSON입니다. 삭제하면 되돌릴 수 없어요.</div>
+    <div id="counts"></div>
+    <div class="row-btn" style="margin-top:14px">
+      <button class="btn danger" id="del-chats">채팅 기록 전체 삭제</button>
+    </div>
+  </div>
+</div></div>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const KEY = 'crack.defaultModel';   // "제공사id/모델id" — chat.html도 이 키를 읽는다
+const POLL = 'crack.usagePoll';     // 사용량 자동 갱신 주기(초). 0 = 끔
+const MAXTOK = 'crack.maxTokens';   // 0 = 안 보냄
+const KEEP = 'crack.keepTurns';     // 0 = 요약 안 함
+
+let toastTimer;
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+document.querySelector('.gnav').addEventListener('click', e => {
+  const a = e.target.closest('a');
+  if (a && a.getAttribute('href') === '#') e.preventDefault();
+});
+
+async function load(){
+  let d = { providers: [], problems: [], hermes: false };
+  try{
+    const r = await fetch('/api/models');
+    if (r.ok) d = await r.json();
+  }catch(e){}
+  const providers = Array.isArray(d.providers) ? d.providers : [];
+  const problems = Array.isArray(d.problems) ? d.problems : [];
+
+  // 기본 모델 — 저장값이 카탈로그에 없으면 첫 모델로 떨어진다
+  const saved = localStorage.getItem(KEY);
+  // 모델 창과 같은 출처 구분 — optgroup 은 브라우저가 알아서 머리글로 그린다
+  const GROUPS = [['cli','구독 (CLI)'],['hermes','Hermes 자동'],['manual','직접 추가한 API'],['local','로컬']];
+  const opts = GROUPS.map(([src, label]) => {
+    const items = providers.filter(p => (p.src || 'hermes') === src);
+    if (!items.length) return '';
+    return '<optgroup label="' + esc(label) + '">' + items.flatMap(p => p.models.map(m =>
+      '<option value="' + esc(p.id + '/' + m.id) + '">' + esc(p.icon + ' ' + p.name + ' — ' + m.name) + '</option>'
+    )).join('') + '</optgroup>';
+  }).join('');
+  $('model').innerHTML = opts || '<option value="">쓸 수 있는 모델이 없어요</option>';
+  if (saved && [...$('model').options].some(o => o.value === saved)) $('model').value = saved;
+  $('model').onchange = () => { localStorage.setItem(KEY, $('model').value); toast('기본 모델을 저장했어요'); };
+
+  $('poll').value = localStorage.getItem(POLL) || '0';
+  $('poll').onchange = () => { localStorage.setItem(POLL, $('poll').value); toast('저장했어요'); };
+
+  for (const [el, key, def] of [['maxtok', MAXTOK, '0'], ['keepturns', KEEP, '0']]){
+    $(el).value = localStorage.getItem(key) || def;
+    $(el).onchange = () => { localStorage.setItem(key, $(el).value); toast('저장했어요'); };
+  }
+
+  $('providers').innerHTML =
+    (d.hermes ? '' : '<div class="line"><span class="nm">Hermes</span><span class="val bad">연결 안 됨</span></div>') +
+    providers.map(p => '<div class="line"><span class="nm">' + esc(p.icon + ' ' + p.name) + '</span>' +
+      '<span class="val ok">모델 ' + p.models.length + '개</span></div>').join('') +
+    problems.map(b => '<div class="line"><span class="nm">⚠ ' + esc(b.name) + '</span>' +
+      '<span class="val bad">' + esc(b.reason) + '</span></div>').join('') +
+    (providers.length || problems.length ? '' : '<div class="line"><span class="nm">붙은 제공사가 없어요</span></div>');
+
+  await counts();
+  await manual();
+}
+
+async function manual(){
+  let list = [];
+  try{ const r = await fetch('/api/providers'); if (r.ok) list = await r.json(); }catch(e){}
+  $('manual').innerHTML = list.length
+    ? list.map(p => '<div class="line" data-id="' + esc(p.id) + '">' +
+        '<span class="nm">' + esc((p.icon || '') + ' ' + p.name) + '</span>' +
+        '<span class="val">' + esc(p.url) + (p.has_key ? ' · 키 있음' : ' · 키 없음') + '</span>' +
+        '<button class="x" title="삭제">✕</button></div>').join('')
+    : '<div class="line"><span class="nm" style="color:#666">직접 추가한 API가 없어요</span></div>';
+  $('manual').querySelectorAll('.x').forEach(b => b.onclick = async () => {
+    const id = b.closest('.line').dataset.id;
+    if (!confirm('「' + id + '」 연결을 삭제할까요?')) return;
+    try{ await fetch('/api/providers/' + encodeURIComponent(id), { method: 'DELETE' }); }catch(e){}
+    toast('삭제했어요');
+    await load();
+  });
+}
+
+// 어느 칸이 틀렸는지 그 칸 밑에 빨갛게. field 를 안 주면 주소 칸에 붙인다.
+function fieldError(field, text){
+  clearErrors();
+  const id = (field === 'key') ? 'key' : 'url';
+  $('p-' + id).classList.add('bad');
+  const e = $('e-' + id);
+  e.textContent = text;
+  e.classList.add('show');
+}
+function clearErrors(){
+  for (const id of ['url', 'key']){
+    $('p-' + id).classList.remove('bad');
+    const e = $('e-' + id);
+    e.textContent = ''; e.classList.remove('show');
+  }
+  $('p-msg').textContent = ''; $('p-msg').className = 'msg';
+}
+// 고치기 시작하면 빨간 표시를 지운다
+['p-url', 'p-key'].forEach(id => $(id).addEventListener('input', clearErrors));
+
+$('p-add').onclick = async () => {
+  const url = $('p-url').value.trim();
+  const msg = $('p-msg');
+  clearErrors();
+  if (!url) return fieldError('url', '주소를 입력해 주세요');
+  $('p-add').disabled = true;
+  msg.textContent = '모델 목록을 확인하는 중…';
+  let d = {}, ok = false;
+  try{
+    const r = await fetch('/api/providers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: $('p-name').value.trim(), url, key: $('p-key').value.trim() })
+    });
+    d = await r.json(); ok = r.ok;
+  }catch(e){ d = { error: '서버에 닿지 못했어요' }; }
+  $('p-add').disabled = false;
+  msg.textContent = '';
+  if (!ok) return fieldError(d.field, d.error || '추가하지 못했어요');
+  msg.className = 'msg ok'; msg.textContent = '모델 ' + d.models + '개를 찾았어요';
+  $('p-name').value = ''; $('p-url').value = ''; $('p-key').value = '';
+  await load();
+};
+
+async function counts(){
+  const get = async u => { try{ const r = await fetch(u); return r.ok ? (await r.json()).length : 0; }catch(e){ return 0; } };
+  const [w, c] = [await get('/api/drafts'), await get('/api/chats')];
+  $('counts').innerHTML =
+    '<div class="line"><span class="nm">작품</span><span class="val">' + w + '개</span></div>' +
+    '<div class="line"><span class="nm">채팅 기록</span><span class="val">' + c + '개</span></div>';
+}
+
+$('del-chats').onclick = async () => {
+  let list = [];
+  try{ const r = await fetch('/api/chats'); if (r.ok) list = await r.json(); }catch(e){}
+  if (!list.length) return toast('지울 채팅이 없어요');
+  if (!confirm('채팅 기록 ' + list.length + '개를 모두 삭제할까요?\n작품(스토리)은 그대로 두고 대화만 지웁니다.')) return;
+  for (const it of list){
+    try{ await fetch('/api/chats/' + encodeURIComponent(it.id), { method: 'DELETE' }); }catch(e){}
+  }
+  await counts();
+  toast('채팅 기록을 삭제했어요');
+};
+
+load();
+</script>
+</body>
+</html>

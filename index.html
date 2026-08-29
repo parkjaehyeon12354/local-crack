@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>크랙 — 로컬</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#0d0d0d;color:#e8e8e8;min-height:100vh;
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;
+}
+.logo{color:#f5442e;font-size:34px;font-weight:800;letter-spacing:-1px}
+.sub{color:#7a7a7a;font-size:14px;margin:10px 0 44px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;width:100%;max-width:840px}
+a.card{
+  display:block;text-decoration:none;color:inherit;
+  background:#141414;border:1px solid #242424;border-radius:16px;padding:32px 28px 28px;
+  transition:border-color .15s,background .15s,transform .15s;
+}
+a.card:hover{border-color:#3a3a3a;background:#171717;transform:translateY(-2px)}
+a.card:focus-visible{outline:2px solid #f5442e;outline-offset:2px}
+.ico{
+  width:52px;height:52px;border-radius:13px;display:flex;align-items:center;justify-content:center;
+  font-size:25px;margin-bottom:20px;
+}
+.c1 .ico{background:rgba(245,68,46,.14);color:#f5442e}
+.c2 .ico{background:rgba(122,162,247,.14);color:#7aa2f7}
+h2{font-size:19px;font-weight:700;margin-bottom:7px}
+p{color:#8a8a8a;font-size:13px;line-height:1.7}
+.go{margin-top:22px;font-size:13px;color:#666;display:flex;align-items:center;gap:6px}
+a.card:hover .go{color:#e8e8e8}
+.foot{color:#4a4a4a;font-size:12px;margin-top:40px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+  <div class="logo">크랙</div>
+  <div class="sub">로컬에서 돌아가는 스토리 빌더 · 내 모델로 플레이한다</div>
+
+  <div class="grid">
+    <a class="card c1" href="/chat.html">
+      <div class="ico">💬</div>
+      <h2>캐릭터 채팅</h2>
+      <p>만들어 둔 스토리로 바로 플레이한다.<br>모델은 언제든 바꿀 수 있다.</p>
+      <div class="go">채팅 시작 →</div>
+    </a>
+
+    <a class="card c2" href="/builder.html">
+      <div class="ico">🛠</div>
+      <h2>스토리 빌더</h2>
+      <p>프롬프트와 키워드북을 편집한다.<br>우측에서 바로 시험해 볼 수 있다.</p>
+      <div class="go">빌더 열기 →</div>
+    </a>
+  </div>
+
+  <div class="foot" id="foot"></div>
+
+<script>
+// 저장된 개수만 보여준다. 실패하면 조용히 비운다.
+Promise.all([
+  fetch('/api/drafts').then(r=>r.json()).catch(()=>[]),
+  fetch('/api/chats').then(r=>r.json()).catch(()=>[]),
+]).then(([d,c])=>{
+  document.getElementById('foot').textContent =
+    '스토리 ' + (d.length||0) + '개 · 채팅 ' + (c.length||0) + '개';
+});
+</script>
+</body>
+</html>
