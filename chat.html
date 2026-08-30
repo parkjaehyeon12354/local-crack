@@ -321,6 +321,7 @@ button{font-family:inherit;}
   <button class="dr-i" data-open="note"><span class="dr-ic">📝</span>유저 노트<span class="dr-v" id="drNote"></span></button>
   <button class="dr-i" data-open="memory"><span class="dr-ic">🧠</span>장기 기억<span class="dr-v" id="drMem"></span></button>
   <button class="dr-i" data-open="chronicle"><span class="dr-ic">📜</span>사건 기록<span class="dr-v" id="drChron"></span></button>
+  <button class="dr-i" id="drImgBtn"><span class="dr-ic">🖼</span>이미지<span class="dr-v" id="drImg"></span></button>
   <div class="dr-h">시작 설정</div>
   <div class="dr-flat" id="drStart">기본 설정</div>
 </aside>
@@ -515,6 +516,7 @@ let loggedTurns = 0;        // 어디까지 기록했는지
 let eventEvery = 20;        // 몇 턴마다 자동 요약할지 (0 = 끔)
 let eventMode = 'append';   // append | full | chars
 let chronAll = false;       // true 면 줄거리를 매 턴 통째로 넣는다
+let imgOff = false;         // 이 방에서만 이미지를 끈다 (스토리는 안 건드림)
 let tooLong = false;        // 줄거리가 너무 길어졌나 (서버가 판단)
 let warnAt = 3500;
 
@@ -656,6 +658,12 @@ function renderDrawer(){
   cv.textContent = !chronicle.trim() ? '없음'
     : (loggedTurns ? '~' + loggedTurns + '턴' : chronicle.trim().length + '자');
   cv.classList.toggle('on', !!chronicle.trim());
+  const iv = document.getElementById('drImg');
+  const has = ((currentStory && currentStory.images) || []).length;
+  // 등록된 그림이 없으면 켤 것도 없다 — 눌러도 아무 일 없는 줄을 두지 않는다
+  document.getElementById('drImgBtn').style.display = has ? '' : 'none';
+  iv.textContent = imgOff ? '꺼짐' : '켜짐 · ' + has + '장';
+  iv.classList.toggle('on', !imgOff);
   const st = currentStory && currentStory.starts && currentStory.starts[0];
   document.getElementById('drStart').textContent = (st && st.name) || '기본 설정';
 }
@@ -663,6 +671,13 @@ function toggleDrawer(){
   drawer.classList.toggle('open');
   if (drawer.classList.contains('open')) renderDrawer();
 }
+// 이미지는 모달 없이 그 자리에서 켜고 끈다 — 고를 게 없으니 화면 하나가 낭비다
+document.getElementById('drImgBtn').onclick = e => {
+  e.stopPropagation();
+  imgOff = !imgOff;
+  // 서랍 라벨이 곧 '켜짐/꺼짐' 이라 따로 알릴 게 없다
+  renderDrawer(); renderMessages(); saveChat();
+};
 document.getElementById('btn-drawer').onclick = e => { e.stopPropagation(); toggleDrawer(); };
 // 서랍 밖을 누르면 닫는다 (모달이 떠 있을 땐 놔둔다)
 document.addEventListener('click', e => {
@@ -923,6 +938,7 @@ function startNewSession(){
   eventEvery = 20;
   eventMode = 'append';
   chronAll = false;
+  imgOff = false;
   tooLong = false;
   renderNoteTag();
   renderWarn();
@@ -1003,6 +1019,7 @@ async function openChat(id){
   eventEvery = data.event_every == null ? 20 : +data.event_every;
   eventMode = ['full', 'chars'].includes(data.event_mode) ? data.event_mode : 'append';
   chronAll = !!data.chron_all;
+  imgOff = !!data.img_off;
   tooLong = chronicle.length > warnAt;
   renderWarn();
   if (data.persona_id && personas.some(p => p.id === data.persona_id)){
@@ -1078,8 +1095,10 @@ function appendLine(box, line){
   while ((mo = IMG_RE.exec(line))){
     flush(line.slice(last, mo.index).trim());
     last = mo.index + mo[0].length;
-    const n = parseInt(mo[1], 10), got = imgSrc(n);
-    if (got){
+    const n = parseInt(mo[1], 10), got = imgOff ? null : imgSrc(n);
+    if (imgOff){
+      // 껐으면 옛 대화의 토큰도 조용히 감춘다. 원문은 그대로 남아 다시 켜면 돌아온다
+    } else if (got){
       const im = document.createElement('img');
       im.className = 'msg-img'; im.src = got.src; im.alt = got.label;
       im.title = got.label; im.loading = 'lazy';
@@ -1184,6 +1203,7 @@ async function callChat(message){
         event_every: eventEvery,
         event_mode: eventMode,
         chron_all: chronAll,
+        img_off: imgOff,
         max_tokens: +(localStorage.getItem('crack.maxTokens') || 0),
         keep_turns: +(localStorage.getItem('crack.keepTurns') || 0),
         story: currentStory,
@@ -1226,6 +1246,7 @@ async function saveChat(){
         event_every: eventEvery,
         event_mode: eventMode,
         chron_all: chronAll,
+        img_off: imgOff,
         persona_id: personaId,
         model: currentModel ? currentModel.pid + '/' + currentModel.mid : null,
         log: log.filter(m => !m.error).map(m => ({role:m.role, content:m.content, fired:m.fired || []}))

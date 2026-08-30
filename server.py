@@ -261,7 +261,7 @@ def relevant_chronicle(chronicle, history, user_input, top=3,
 
 
 def build_system(story, history=None, user_input="", persona="", usernote="",
-                 memory="", chronicle="", chron_all=False):
+                 memory="", chronicle="", chron_all=False, img_off=False):
     """매 턴 호출. system 프롬프트 문자열을 만든다.
     순서: 프롬프트 → 가이드 → 사건 기록 → 장기 기억 → 프로필 → 유저 노트
           → 발동한 노트.
@@ -273,7 +273,8 @@ def build_system(story, history=None, user_input="", persona="", usernote="",
     if (start.get("guide") or "").strip():
         parts.append(start["guide"].strip())
     # 이미지 — 규칙과 목록 모두 여기서 넣는다. 스토리 프롬프트에 적을 필요 없다.
-    imgs = img_lines(story)
+    # 방에서 끈 경우 목록째 빼서 모델이 고를 수가 없게 한다.
+    imgs = "" if img_off else img_lines(story)
     if imgs:
         parts.append(f"[이미지]\n{IMG_RULES.get(story.get('imgRule'), IMG_RULES['fit'])}\n"
                      "번호만 고른다. 주소·파일명·확장자를 쓰지 않는다. "
@@ -1028,7 +1029,8 @@ class Handler(SimpleHTTPRequestHandler):
                 hist = hist[cut:]
 
             system = build_system(story, hist, msg, persona, usernote, memory,
-                                  chronicle, bool(data.get("chron_all")))
+                                  chronicle, bool(data.get("chron_all")),
+                                  bool(data.get("img_off")))
             # 사용자가 친 말 안의 {user}/{char} 도 같이 치환한다.
             # {img::N} 은 이름으로 풀어 보낸다 — 번호만 보면 뭘 골랐는지 모른다.
             msg = img_to_label(subst(msg, story, persona), story)
@@ -1321,6 +1323,9 @@ def selftest():
     # 모르는 값이 와도 기본으로 떨어진다
     ibad = build_system(dict(ps, images=ist["images"], imgRule="없는값"), [], "")
     assert IMG_RULES["fit"] in ibad, ibad
+    # 방에서 끄면 목록째 빠진다 — 규칙만 남으면 모델이 없는 번호를 지어낸다
+    ioff2 = build_system(dict(ps, images=ist["images"]), [], "", img_off=True)
+    assert "[이미지]" not in ioff2 and "칸나 무표정" not in ioff2, ioff2
 
     # 저장 → 디스크에서 그대로 읽히는가 + 백업이 도는가
     import tempfile
