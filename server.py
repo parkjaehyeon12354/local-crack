@@ -81,6 +81,16 @@ def active_notes(notes, history, user_input, scan_turns=SCAN_TURNS,
 # 주소 대응은 스토리에 저장해 둔다. 주소가 바뀌어도 옛 대화가 살아난다.
 IMG_RE = re.compile(r"\{img::\s*(\d+)\s*\}")
 
+# 언제 넣을지. 스토리 프롬프트가 아니라 여기서 붙는다 — 스토리마다
+# 같은 문장을 베껴 적게 하지 않기 위해서.
+IMG_RULES = {
+    "off": "이미지는 사용자가 요청할 때만 {img::번호} 로 낸다.",
+    "fit": ("장면이 목록의 이름과 맞아떨어질 때 그 번호를 {img::번호} 로 낸다. "
+            "억지로 끼워 맞추지 않는다 — 맞는 게 없으면 내지 않는다."),
+    "each": ("답변마다 장면에 가장 맞는 이미지 1장을 {img::번호} 로 낸다. "
+             "서술 뒤 줄바꿈하고 토큰만 한 줄에 적는다."),
+}
+
 
 def img_map(story):
     """{번호: (이름, 주소)}. 번호를 적어둔 것이 먼저고, 번호 없는 것은
@@ -262,10 +272,12 @@ def build_system(story, history=None, user_input="", persona="", usernote="",
     # 시작 설정의 플레이 가이드도 매 턴 들어간다
     if (start.get("guide") or "").strip():
         parts.append(start["guide"].strip())
-    # 이미지 목록 — 프롬프트에 코드 조합 규칙을 적지 않기 위한 것
+    # 이미지 — 규칙과 목록 모두 여기서 넣는다. 스토리 프롬프트에 적을 필요 없다.
     imgs = img_lines(story)
     if imgs:
-        parts.append("[이미지] 출력은 {img::번호} 형식만 쓴다. URL✕\n" + imgs)
+        parts.append(f"[이미지]\n{IMG_RULES.get(story.get('imgRule'), IMG_RULES['fit'])}\n"
+                     "번호만 고른다. 주소·파일명·확장자를 쓰지 않는다. "
+                     "목록에 없는 번호✕\n" + imgs)
     # 사건 기록 — 쌓인 연대기 중 지금 이야기와 겹치는 부분만
     chron = (chronicle or "").strip()
     if chron and not chron_all:
@@ -1300,6 +1312,15 @@ def selftest():
     igot = build_system(dict(ps, images=ist["images"]), [], "")
     assert "{img::번호}" in igot and "1=칸나 무표정" in igot, igot
     assert "[이미지]" not in build_system(ps, [], "")
+    # 규칙은 스토리 프롬프트가 아니라 서버가 붙인다
+    assert IMG_RULES["fit"] in igot, igot          # 기본값
+    ieach = build_system(dict(ps, images=ist["images"], imgRule="each"), [], "")
+    assert IMG_RULES["each"] in ieach and IMG_RULES["fit"] not in ieach, ieach
+    ioff = build_system(dict(ps, images=ist["images"], imgRule="off"), [], "")
+    assert IMG_RULES["off"] in ioff, ioff
+    # 모르는 값이 와도 기본으로 떨어진다
+    ibad = build_system(dict(ps, images=ist["images"], imgRule="없는값"), [], "")
+    assert IMG_RULES["fit"] in ibad, ibad
 
     # 저장 → 디스크에서 그대로 읽히는가 + 백업이 도는가
     import tempfile

@@ -381,7 +381,7 @@ const TABS=[ // id, label, required, works
 ];
 const WORK=['profile','story','start','media','keyword'];
 function defaultStart(){return {name:'기본 설정',prologue:'',situation:'',guide:''};}
-function defaultState(){return {id:null,title:'',subtitle:'',image:'',promptTemplate:'custom',prompt:'',starts:[defaultStart()],notes:[],images:[]};}
+function defaultState(){return {id:null,title:'',subtitle:'',image:'',promptTemplate:'custom',prompt:'',starts:[defaultStart()],notes:[],images:[],imgRule:'fit'};}
 let state=defaultState();
 let activeTab='profile', activeStart=0, rightMode='preview';
 let advOpen=false, alertClosed=false, editingNote=-1, noteFilter='all';
@@ -650,7 +650,16 @@ function imgUrl(im){
   return (/^https?:\/\//.test(u)||u.startsWith('/')||!base) ? u : base+'/'+u;
 }
 function renderMedia(c){
+  const rule=state.imgRule||'fit';
+  const ropt=(v,t)=>'<option value="'+v+'"'+(rule===v?' selected':'')+'>'+t+'</option>';
   c.innerHTML=
+  '<div class="fld"><label>언제 넣을지</label>'+
+    '<select id="f-imgrule">'+
+      ropt('fit','장면과 맞을 때만 — 맞는 게 없으면 안 넣음')+
+      ropt('each','답변마다 1장 — 가장 가까운 것을 고름')+
+      ropt('off','내가 요청할 때만')+
+    '</select>'+
+    '<div class="hint">규칙은 자동으로 프롬프트에 들어가요. 스토리 설정에 따로 적지 않아도 됩니다.</div></div>'+
   '<div class="fld"><label>이미지 목록</label>'+
     '<div class="hint">대화에서 <code>{img::번호}</code> 로 불러와요. 이름은 모델이 고르는 기준이라 비우면 목록에서 빠집니다.</div>'+
     '<input type="file" id="img-file" accept="image/*" multiple hidden>'+
@@ -659,6 +668,7 @@ function renderMedia(c){
       '<div class="up-hint">여러 장을 한 번에 고르거나 여기로 끌어다 놓으세요</div>'+
     '</div>'+
     '<div id="img-list"></div></div>';
+  $('f-imgrule').onchange=e=>{state.imgRule=e.target.value;renderPreview();};
   $('btn-upimg').onclick=()=>$('img-file').click();
   $('img-file').onchange=e=>{uploadImgs([...e.target.files]);e.target.value='';};
   const z=$('up-zone');
