@@ -924,13 +924,39 @@ NAI_UC = ("lowres, artistic error, film grain, scan artifacts, worst quality, "
           "signature, logo, text")
 
 
+NAI_FILE = DATA / "novelai.json"      # 페이지에서 넣은 키. .env 가 없을 때만 쓴다
+
+
+def nai_key():
+    """.env 가 우선. 없으면 페이지에서 넣어 둔 것.
+    .env 를 이기게 하면 예전 키가 조용히 살아남는다."""
+    k = _env_all().get(NAI_KEY, "")
+    if k:
+        return k, "env"
+    if NAI_FILE.exists():
+        try:
+            return json.loads(NAI_FILE.read_text(encoding="utf-8")).get("key", ""), "file"
+        except Exception:
+            pass
+    return "", ""
+
+
+def nai_save_key(key):
+    """키를 파일에 둔다. providers.json 과 같은 취급 — 본인만 읽는다."""
+    NAI_FILE.write_text(json.dumps({"key": key.strip()}), encoding="utf-8")
+    try:
+        os.chmod(NAI_FILE, 0o600)
+    except Exception:
+        pass
+
+
 def nai_generate(prompt, uc="", seed=0, model="nai-diffusion-4-5-full",
                  width=1216, height=832, steps=28, scale=7.0):
     """그림 한 장. 저장된 파일 이름을 돌려준다.
     응답이 PNG 가 아니라 ZIP 이라는 게 이 API 의 유일한 함정."""
-    key = _env_all().get(NAI_KEY, "")
+    key, _ = nai_key()
     if not key:
-        raise RuntimeError(f"{NAI_KEY} 가 ~/.hermes/.env 에 없어요")
+        raise ValueError("NovelAI 키를 먼저 넣어 주세요")
     uc = uc if uc.strip() else NAI_UC
     seed = int(seed) or random.randint(1, 2 ** 32 - 1)
     body = {"input": prompt, "model": model, "action": "generate",
@@ -1179,6 +1205,10 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/api/personas":
             return self._json(load_list(PERSONAS))
+        if self.path == "/api/nai-key":
+            # providers 와 같은 규칙 — 값은 안 내려보내고 있는지만 알린다
+            k, src = nai_key()
+            return self._json({"has_key": bool(k), "src": src})
         if self.path == "/api/providers":
             # 키는 절대 돌려주지 않는다. 들어있는지 여부만.
             return self._json([{"id": p.get("id"), "name": p.get("name"),
@@ -1301,6 +1331,10 @@ class Handler(SimpleHTTPRequestHandler):
                 items.append(row)            # 추가
             save_list(PERSONAS, items)
             return self._json(row)
+        if self.path == "/api/nai-key":
+            nai_save_key(str(data.get("key") or ""))
+            k, src = nai_key()
+            return self._json({"has_key": bool(k), "src": src})
         if self.path == "/api/providers":
             return self._add_provider(data)
         (kind, _) = self._kind()
@@ -1445,6 +1479,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def selftest():
+    global NAI_FILE
     story = {
         "prompt": "P",
         "notes": [
@@ -1663,6 +1698,28 @@ def selftest():
     for v in ({}, {"imgOn": True}):
         assert "[이미지]" in build_system(
             dict(ps, images=ist["images"], **v), [], ""), v
+
+    # NovelAI 키: .env 가 언제나 이긴다. 파일이 이기면 옛 키가 조용히 산다.
+    _real_nai, NAI_FILE = NAI_FILE, NAI_FILE.parent / "_t_novelai.json"
+    _real_env_all = globals()["_env_all"]
+    _fake_env = {}
+    globals()["_env_all"] = lambda: _fake_env
+    try:
+        nai_save_key("file-key")
+        _fake_env[NAI_KEY] = "env-key"
+        assert nai_key() == ("env-key", "env"), nai_key()
+        _fake_env.pop(NAI_KEY)
+        assert nai_key() == ("file-key", "file"), nai_key()
+        NAI_FILE.unlink()
+        assert nai_key() == ("", ""), nai_key()
+        # 파일이 깨져 있어도 터지지 않는다 — 키 하나에 서버가 죽으면 안 된다
+        NAI_FILE.write_text("{ 망가짐", encoding="utf-8")
+        assert nai_key() == ("", ""), nai_key()
+    finally:
+        if NAI_FILE.exists():
+            NAI_FILE.unlink()
+        NAI_FILE = _real_nai
+        globals()["_env_all"] = _real_env_all
 
     # 이름 짓기: 모델이 설명·따옴표를 붙여 와도 이름만 남아야 한다
     assert _clean_name("칸나 무표정") == "칸나 무표정"

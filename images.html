@@ -32,6 +32,12 @@ button{font-family:inherit;cursor:pointer;}
 .wrap{display:grid;grid-template-columns:380px 1fr;gap:22px;align-items:start;}
 @media(max-width:900px){.wrap{grid-template-columns:1fr;}}
 
+.keybar{display:flex;gap:8px;margin-bottom:14px;}
+.keybar input{flex:1;}
+.keybar button{background:#f5442e;border:0;color:#fff;border-radius:9px;padding:0 16px;font-size:13px;font-weight:700;}
+.keyok{display:flex;align-items:center;gap:9px;margin-bottom:14px;color:#6e6e6e;font-size:12px;}
+.keyok button{background:none;border:0;color:#7a7a7a;font-size:12px;text-decoration:underline;padding:0;}
+.keyok button:hover{color:#f5442e;}
 .fld{margin-bottom:14px;}
 .fld label{display:block;font-size:13px;color:#c8c8c8;margin-bottom:6px;}
 .fld .hint{color:#6e6e6e;font-size:11px;margin-top:5px;line-height:1.5;}
@@ -87,6 +93,12 @@ textarea{line-height:1.6;}
 
   <div class="wrap">
     <div>
+      <div class="keybar" id="keybar" hidden>
+        <input id="key" type="password" placeholder="NovelAI API 키 (pst-...)" autocomplete="off">
+        <button id="savekey">저장</button>
+      </div>
+      <div class="keyok" id="keyok" hidden><span id="keysrc"></span><button id="editkey">바꾸기</button></div>
+
       <div class="fld">
         <label>프롬프트</label>
         <textarea id="p" rows="6" placeholder="1girl, black hair, rain, alley, night"></textarea>
@@ -183,6 +195,33 @@ function drawRoll() {
 drawRoll();
 if (made.length) show(made[0].url, made[0].seed);
 
+// 키는 서버에만 둔다. 여기선 있는지 여부만 받아 화면을 정한다 —
+// 값을 내려받아 input 에 채우면 화면에 키가 뜬다.
+async function loadKey() {
+  try {
+    const j = await (await fetch('/api/nai-key')).json();
+    $('keybar').hidden = j.has_key;
+    $('keyok').hidden = !j.has_key;
+    $('keysrc').textContent = j.src === 'env'
+      ? '키: ~/.hermes/.env 에서 읽었어요'
+      : '키가 저장돼 있어요';
+    $('editkey').hidden = j.src === 'env';   // .env 가 이기니 바꿔도 안 먹는다
+  } catch (e) { $('keybar').hidden = false; }
+}
+loadKey();
+$('savekey').onclick = async () => {
+  const k = $('key').value.trim();
+  if (!k) { $('st').textContent = '키를 넣어 주세요'; return; }
+  await fetch('/api/nai-key', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: k })
+  });
+  $('key').value = '';
+  $('st').textContent = '키를 저장했어요';
+  loadKey();
+};
+$('editkey').onclick = () => { $('keybar').hidden = false; $('keyok').hidden = true; };
+
 async function generate() {
   const prompt = $('p').value.trim();
   if (!prompt) { $('st').textContent = '프롬프트를 적어 주세요'; return; }
@@ -201,7 +240,8 @@ async function generate() {
       })
     });
     const j = await r.json();
-    if (!r.ok) throw new Error(j.error || '실패');
+    if (!r.ok) { if (r.status === 400 && /키/.test(j.error || '')) loadKey();
+                 throw new Error(j.error || '실패'); }
     made.unshift({ url: j.url, seed: j.seed });
     made = made.slice(0, 40);        // 목록만 자른다 — 파일은 서버에 남는다
     localStorage.setItem(HIST, JSON.stringify(made));
