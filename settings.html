@@ -32,6 +32,7 @@ h1{font-size:26px;letter-spacing:-.5px;margin-bottom:26px;}
 select{width:100%;appearance:none;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;
   color:#e8e8e8;padding:11px 12px;font-size:14px;outline:none;cursor:pointer;font-family:inherit;}
 select:focus{border-color:#4a4a4a;}
+.fld-l{font-size:13px;color:#8a8a8a;margin:14px 0 6px}
 .sw-row{display:flex;align-items:center;gap:16px}
 .sw-row .desc{margin:4px 0 0}
 .sw-t{font-size:14px;color:#e8e8e8}
@@ -116,6 +117,17 @@ select:focus{border-color:#4a4a4a;}
     <div class="desc">사건 기록·장기 기억 요약만 이 모델이 맡습니다. 요약은 창작이 아니라 추출이라
       싼 모델로 충분하고, 20턴마다 본편 모델을 한 번 더 부르지 않게 됩니다.</div>
     <select id="submodel"></select>
+    <div id="subeff-wrap" style="display:none">
+      <div class="fld-l">추론 강도</div>
+      <select id="subeff">
+        <option value="">모델 기본값</option>
+        <option value="low">낮음 — 빠르고 싸게</option>
+        <option value="medium">보통</option>
+        <option value="high">높음 — 느리지만 꼼꼼히</option>
+      </select>
+      <div class="desc">지원하지 않는 제공사에서는 자동으로 빼고 보냅니다.
+        이름에 강도가 붙은 모델(<code>…-low</code>)은 그 값이 우선입니다.</div>
+    </div>
   </div>
 
   <div class="card">
@@ -188,6 +200,7 @@ const MAXTOK = 'crack.maxTokens';   // 0 = 안 보냄
 const KEEP = 'crack.keepTurns';     // 0 = 요약 안 함
 const IMGNAME = 'crack.imgName';    // '0' 이면 파일 이름을 안 따온다 (기본 켬)
 const SUBMODEL = 'crack.subModel';  // 요약 전용. 비면 본편 모델을 쓴다
+const SUBEFF = 'crack.subEffort';   // 서브모델 추론 강도. 비면 안 보냄
 
 let toastTimer;
 function toast(msg){
@@ -227,7 +240,13 @@ async function load(){
   const savedSub = localStorage.getItem(SUBMODEL) || '';
   $('submodel').innerHTML = '<option value="">안 씀 (본편 모델로 요약)</option>' + opts;
   if (savedSub && [...$('submodel').options].some(o => o.value === savedSub)) $('submodel').value = savedSub;
-  $('submodel').onchange = () => { localStorage.setItem(SUBMODEL, $('submodel').value); toast('저장했어요'); };
+  // 강도는 서브모델을 골랐을 때만 의미가 있다
+  const effWrap = $('subeff-wrap');
+  const paintEff = () => { effWrap.style.display = $('submodel').value ? '' : 'none'; };
+  $('subeff').value = localStorage.getItem(SUBEFF) || '';
+  paintEff();
+  $('submodel').onchange = () => { localStorage.setItem(SUBMODEL, $('submodel').value); paintEff(); toast('저장했어요'); };
+  $('subeff').onchange = () => { localStorage.setItem(SUBEFF, $('subeff').value); toast('저장했어요'); };
 
   // 켬이 기본 — 저장된 적 없으면 '0'이 아니므로 on
   const sw = $('imgname');

@@ -767,7 +767,8 @@ function openChronicle(){
           history: log.filter(m => !m.error).map(m => ({role:m.role, content:m.content})),
           chronicle: t.value,
           logged_turns: loggedTurns,
-          sub_model: localStorage.getItem('crack.subModel') || ''
+          sub_model: localStorage.getItem('crack.subModel') || '',
+          sub_effort: localStorage.getItem('crack.subEffort') || ''
         })});
       const d = await r.json();
       if (!r.ok){ err.textContent = d.error || '요약하지 못했어요'; return; }
@@ -1210,6 +1211,7 @@ async function callChat(message){
         max_tokens: +(localStorage.getItem('crack.maxTokens') || 0),
         keep_turns: +(localStorage.getItem('crack.keepTurns') || 0),
         sub_model: localStorage.getItem('crack.subModel') || '',
+        sub_effort: localStorage.getItem('crack.subEffort') || '',
         story: currentStory,
         history: entries.map(m => ({role:m.role, content:m.content})),
         message: message

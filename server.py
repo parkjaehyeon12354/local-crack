@@ -705,7 +705,25 @@ def refresh_models():
     return cat
 
 
-def chat(model_id, system, history, user_input, max_tokens=0):
+# 추론 강도. 제공사마다 붙이는 자리가 다르다:
+#   agy  → 모델 이름에 이미 박혀 있거나(-low/-high) --effort 플래그
+#   OpenAI 호환 → body 의 reasoning_effort
+# 모르는 필드를 거부하는 제공사가 있어 400 이 나면 빼고 한 번 더 보낸다.
+EFFORTS = ("low", "medium", "high")
+
+
+def agy_effort(name, effort):
+    """agy 에 붙일 --effort 인자. 이름에 이미 강도가 박힌 모델
+    (gemini-3.7-flash-low)에 같이 주면 'invalid model selection' 으로
+    거부당하므로 그때는 붙이지 않는다."""
+    if effort not in EFFORTS:
+        return []
+    if name.endswith(tuple("-" + e for e in EFFORTS)):
+        return []
+    return ["--effort", effort]
+
+
+def chat(model_id, system, history, user_input, max_tokens=0, effort=""):
     """한 턴 생성. model_id 는 "제공사/모델" 형식. 실패는 예외로 올린다.
     max_tokens 0 = 안 보냄(모델 기본값). 사고 토큰이 예산을 먼저 먹어
     빈 응답이 나는 걸 피하려면 굳이 보내지 않는 쪽이 안전하다."""
@@ -734,10 +752,19 @@ def chat(model_id, system, history, user_input, max_tokens=0):
         # 코딩 에이전트라 파일을 건드리지 않도록 빈 폴더에서 돌린다.
         convo = "\n\n".join(f"{m['role']}: {m['content']}" for m in msgs[1:])
         AGY_SANDBOX.mkdir(parents=True, exist_ok=True)
-        r = subprocess.run(
-            [AGY, "-p", f"{system}\n\n---\n\n{convo}", "--model", name,
-             "--print-timeout", "5m"],
-            capture_output=True, text=True, timeout=330, cwd=str(AGY_SANDBOX))
+        base = [AGY, "-p", f"{system}\n\n---\n\n{convo}", "--model", name,
+                "--print-timeout", "5m"]
+
+        def run(extra):
+            return subprocess.run(base + extra, capture_output=True, text=True,
+                                  timeout=330, cwd=str(AGY_SANDBOX))
+
+        eff_args = agy_effort(name, effort)
+        r = run(eff_args)
+        # 어떤 모델이 --effort 를 받는지는 목록에 안 나온다. 거부당하면
+        # 강도만 빼고 다시 — 강도 하나 때문에 요약을 통째로 잃지 않는다.
+        if eff_args and r.returncode != 0 and "--effort" in (r.stderr or ""):
+            r = run([])
         out = (r.stdout or "").strip()
         if r.returncode != 0 or not out:
             raise RuntimeError(((r.stderr or out) or "빈 응답")[:300])
@@ -746,15 +773,32 @@ def chat(model_id, system, history, user_input, max_tokens=0):
     body = {"model": name, "messages": msgs, "stream": False}
     if max_tokens:
         body["max_tokens"] = int(max_tokens)
+    if effort in EFFORTS:
+        body["reasoning_effort"] = effort
     headers = {"Content-Type": "application/json"}
     key = _pkey(p)
     if key:
         headers["Authorization"] = "Bearer " + key
-    req = urllib.request.Request(
-        p["url"] + "/chat/completions",
-        json.dumps(body, ensure_ascii=False).encode(), headers)
-    with urllib.request.urlopen(req, timeout=300) as r:
-        d = json.loads(r.read())
+
+    def send(b):
+        req = urllib.request.Request(
+            p["url"] + "/chat/completions",
+            json.dumps(b, ensure_ascii=False).encode(), headers)
+        with urllib.request.urlopen(req, timeout=300) as r:
+            return json.loads(r.read())
+
+    try:
+        d = send(body)
+    except urllib.error.HTTPError as e:
+        # reasoning_effort 를 모르는 제공사가 있다. 그것 때문이면 빼고 재시도 —
+        # 강도 하나 때문에 요약 자체가 실패하는 것보다 낫다.
+        if "reasoning_effort" not in body:
+            raise
+        detail = e.read()[:400].decode("utf-8", "replace")
+        if e.code not in (400, 422) or "reasoning" not in detail.lower():
+            raise RuntimeError(_why(e.code, detail, p.get("key_env")))
+        body.pop("reasoning_effort")
+        d = send(body)
     return d["choices"][0]["message"]["content"]
 
 
@@ -794,14 +838,15 @@ FULL_PROMPT = (
 )
 
 
-def log_events(model_id, msgs, chronicle, upto):
+def log_events(model_id, msgs, chronicle, upto, effort=""):
     """구간의 사건만 뽑아 기록에 덧붙인다(누적분 추가).
     실패하면 기록을 건드리지 않는다 — 다음 턴에 다시 시도한다."""
     if not msgs:
         return chronicle, False
     convo = "\n".join(f"{m.get('role')}: {m.get('content','')}" for m in msgs)
     try:
-        out = chat(model_id, EVENT_PROMPT, [], convo, max_tokens=800)
+        out = chat(model_id, EVENT_PROMPT, [], convo, max_tokens=800,
+                   effort=effort)
     except Exception:
         return chronicle, False
     out = (out or "").strip()
@@ -811,7 +856,7 @@ def log_events(model_id, msgs, chronicle, upto):
             + f"■ ~{upto}턴\n{out}"), True
 
 
-def recap_full(model_id, msgs, chronicle, upto, mode="full"):
+def recap_full(model_id, msgs, chronicle, upto, mode="full", effort=""):
     """전체/인물별: 기존 줄거리 + 대화를 종합해 처음부터 다시 쓴다.
     누적분 추가와 달리 결과가 하나의 덩어리다."""
     convo = "\n".join(f"{m.get('role')}: {m.get('content','')}" for m in msgs)
@@ -821,7 +866,8 @@ def recap_full(model_id, msgs, chronicle, upto, mode="full"):
     byc = mode == "chars"
     try:
         out = chat(model_id, CHAR_PROMPT if byc else FULL_PROMPT, [],
-                   f"{prior}[전체 대화]\n{convo}", max_tokens=2000)
+                   f"{prior}[전체 대화]\n{convo}", max_tokens=2000,
+                   effort=effort)
     except Exception:
         return chronicle, False
     out = (out or "").strip()
@@ -832,11 +878,16 @@ def recap_full(model_id, msgs, chronicle, upto, mode="full"):
 
 
 def sub_model(data, main):
-    """요약·기록에 쓸 모델. 설정에서 고른 게 있으면 그것, 없으면 본편과 같은 것.
+    """요약·기록에 쓸 (모델, 추론강도). 고른 게 없으면 본편과 같은 모델.
     요약은 창작이 아니라 추출이라 싼 모델로 충분하다 — 본편 모델의
-    구독 한도를 20턴마다 갉아먹지 않게 하는 것이 목적."""
+    구독 한도를 20턴마다 갉아먹지 않게 하는 것이 목적.
+    강도는 서브모델을 실제로 고른 경우에만 쓴다 — 본편으로 떨어졌는데
+    요약용 강도를 얹으면 사용자가 고르지 않은 설정이 붙는다."""
     sub = str(data.get("sub_model") or "").strip()
-    return sub if sub and "/" in sub else main
+    eff = str(data.get("sub_effort") or "").strip()
+    if sub and "/" in sub:
+        return sub, (eff if eff in EFFORTS else "")
+    return main, ""
 
 
 SUMMARY_PROMPT = (
@@ -848,7 +899,7 @@ SUMMARY_PROMPT = (
 )
 
 
-def condense(model_id, old_msgs, memory=""):
+def condense(model_id, old_msgs, memory="", effort=""):
     """창 밖으로 밀려난 대화를 요약해 기억에 합친다.
     실패하면 기존 기억을 그대로 둔다 — 기억이 날아가는 것보다 낫다."""
     if not old_msgs:
@@ -857,7 +908,8 @@ def condense(model_id, old_msgs, memory=""):
     prior = f"[기존 요약]\n{memory}\n\n" if (memory or "").strip() else ""
     try:
         out = chat(model_id, SUMMARY_PROMPT, [],
-                   f"{prior}[요약할 대화]\n{convo}", max_tokens=1200)
+                   f"{prior}[요약할 대화]\n{convo}", max_tokens=1200,
+                   effort=effort)
     except Exception:
         return memory
     out = (out or "").strip()
@@ -1015,14 +1067,14 @@ class Handler(SimpleHTTPRequestHandler):
                 if _catalog else "")
             turns = turn_count(rhist)
             rmode = data.get("mode")
-            mdl = sub_model(data, mdl)     # 요약은 서브모델로
+            mdl, eff = sub_model(data, mdl)     # 요약은 서브모델로
             if rmode in ("full", "chars"):
-                out, ok = recap_full(mdl, rhist, chron, turns, rmode)
+                out, ok = recap_full(mdl, rhist, chron, turns, rmode, eff)
             else:
                 seg = rhist[logged * 2:]   # 아직 기록 안 한 구간만
                 if not seg:
                     return self._json({"error": "새로 기록할 대화가 없어요"}, 400)
-                out, ok = log_events(mdl, seg, chron, turns)
+                out, ok = log_events(mdl, seg, chron, turns, eff)
             if not ok:
                 return self._json({"error": "요약하지 못했어요"}, 502)
             return self._json({"chronicle": out, "logged_turns": turns,
@@ -1073,18 +1125,19 @@ class Handler(SimpleHTTPRequestHandler):
             every = int(data.get("event_every") or EVENT_EVERY)
             mode = data.get("event_mode") or "append"
             turns = turn_count(hist) + 1        # 지금 보내는 이 발화 포함
-            sub = sub_model(data, m)            # 요약·기록 담당
+            sub, sub_eff = sub_model(data, m)   # 요약·기록 담당
             wrote_events = False
             if every > 0 and turns - logged >= every:
                 upto = logged + (turns - logged) // every * every
                 if mode in ("full", "chars"):
                     # 다시 쓰기 — 기존 줄거리 + 처음부터의 대화를 종합
                     chronicle, wrote_events = recap_full(
-                        sub, hist[:upto * 2], chronicle, upto, mode)
+                        sub, hist[:upto * 2], chronicle, upto, mode, sub_eff)
                 else:
                     # 아직 기록 안 한 구간 = logged턴 다음부터 upto턴까지
                     seg = hist[logged * 2:upto * 2] or hist[-every * 2:]
-                    chronicle, wrote_events = log_events(sub, seg, chronicle, upto)
+                    chronicle, wrote_events = log_events(sub, seg, chronicle,
+                                                         upto, sub_eff)
                 if wrote_events:
                     logged = upto
 
@@ -1092,7 +1145,7 @@ class Handler(SimpleHTTPRequestHandler):
             summarized = False
             if keep > 0 and len(hist) > keep * 2:
                 cut = len(hist) - keep * 2
-                new_memory = condense(sub, hist[:cut], memory)
+                new_memory = condense(sub, hist[:cut], memory, sub_eff)
                 summarized = new_memory != memory
                 memory = new_memory
                 hist = hist[cut:]
@@ -1404,13 +1457,81 @@ def selftest():
             dict(ps, images=ist["images"], **v), [], ""), v
 
     # 서브모델: 고른 게 있으면 그것, 없거나 이상하면 본편 모델로 떨어진다
-    assert sub_model({}, "main/m") == "main/m"
-    assert sub_model({"sub_model": ""}, "main/m") == "main/m"
-    assert sub_model({"sub_model": "   "}, "main/m") == "main/m"
-    assert sub_model({"sub_model": None}, "main/m") == "main/m"
-    assert sub_model({"sub_model": "쓰레기"}, "main/m") == "main/m"   # 슬래시 없음
+    assert sub_model({}, "main/m") == ("main/m", "")
+    assert sub_model({"sub_model": ""}, "main/m") == ("main/m", "")
+    assert sub_model({"sub_model": "   "}, "main/m") == ("main/m", "")
+    assert sub_model({"sub_model": None}, "main/m") == ("main/m", "")
+    assert sub_model({"sub_model": "쓰레기"}, "main/m") == ("main/m", "")  # 슬래시 없음
     assert sub_model({"sub_model": "antigravity/gemini-3.7-flash-low"},
-                     "main/m") == "antigravity/gemini-3.7-flash-low"
+                     "main/m") == ("antigravity/gemini-3.7-flash-low", "")
+    # 추론 강도는 서브모델을 실제로 골랐을 때만 따라온다
+    assert sub_model({"sub_model": "a/b", "sub_effort": "high"},
+                     "main/m") == ("a/b", "high")
+    assert sub_model({"sub_model": "a/b", "sub_effort": "없는값"},
+                     "main/m") == ("a/b", "")
+    # 본편으로 떨어지면 강도도 버린다 — 고르지 않은 설정이 붙으면 안 된다
+    assert sub_model({"sub_effort": "high"}, "main/m") == ("main/m", "")
+
+    # agy: 이름에 강도가 박힌 모델에 --effort 를 겹쳐 주면 실제로 거부당한다
+    #      ("invalid model selection" 를 직접 확인함)
+    assert agy_effort("gemini-3.7-flash-low", "high") == []
+    assert agy_effort("gemini-3.1-pro-high", "low") == []
+    assert agy_effort("claude-opus-4-6-thinking", "high") == ["--effort", "high"]
+    assert agy_effort("claude-opus-4-6-thinking", "") == []
+    assert agy_effort("claude-opus-4-6-thinking", "없는값") == []
+
+    # reasoning_effort 를 거부하는 제공사면 빼고 한 번 더 보낸다
+    import io as _io
+    _calls = []
+    _real_open = urllib.request.urlopen
+
+    class _Resp:
+        def __init__(self, d):
+            self._d = json.dumps(d).encode()
+
+        def read(self):
+            return self._d
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    def _fake(req, timeout=0):
+        b = json.loads(req.data.decode())
+        _calls.append(b)
+        if "reasoning_effort" in b:
+            raise urllib.error.HTTPError(
+                req.full_url, 400, "Bad Request", {},
+                _io.BytesIO(b'{"error":"Unsupported parameter: reasoning_effort"}'))
+        return _Resp({"choices": [{"message": {"content": "요약 결과"}}]})
+
+    globals()["_by_model"]["_t/_m"] = {"id": "_t", "url": "http://x/v1",
+                                       "key_env": None}
+    try:
+        urllib.request.urlopen = _fake
+        assert chat("_t/_m", "s", [], "hi", effort="high") == "요약 결과"
+        assert len(_calls) == 2, _calls
+        assert "reasoning_effort" in _calls[0] and "reasoning_effort" not in _calls[1]
+
+        # 강도와 무관한 오류는 재시도하지 않는다 — 키가 틀렸는데 두 번 보내면 안 된다
+        _calls.clear()
+
+        def _fake401(req, timeout=0):
+            _calls.append(1)
+            raise urllib.error.HTTPError(req.full_url, 401, "x", {},
+                                         _io.BytesIO(b'{"error":"bad key"}'))
+        urllib.request.urlopen = _fake401
+        try:
+            chat("_t/_m", "s", [], "hi", effort="high")
+            raise SystemExit("401 인데 예외가 없다")
+        except RuntimeError:
+            pass
+        assert len(_calls) == 1, _calls
+    finally:
+        urllib.request.urlopen = _real_open
+        globals()["_by_model"].pop("_t/_m", None)
 
     # 제공사 목록에 CLI 두 개가 다 뜨는가 (설치돼 있을 때만)
     provs = discover_providers()
