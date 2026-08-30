@@ -377,7 +377,7 @@ const TABS=[ // id, label, required, works
 ];
 const WORK=['profile','story','start','media','keyword'];
 function defaultStart(){return {name:'기본 설정',prologue:'',situation:'',guide:''};}
-function defaultState(){return {id:null,title:'',subtitle:'',image:'',promptTemplate:'custom',prompt:'',starts:[defaultStart()],notes:[],imageBase:'',images:[]};}
+function defaultState(){return {id:null,title:'',subtitle:'',image:'',promptTemplate:'custom',prompt:'',starts:[defaultStart()],notes:[],images:[]};}
 let state=defaultState();
 let activeTab='profile', activeStart=0, rightMode='preview';
 let advOpen=false, alertClosed=false, editingNote=-1, noteFilter='all';
@@ -640,30 +640,18 @@ function autoPrologue(){
 /* ================= tab 4: keyword book ================= */
 /* ================= tab: media ================= */
 // 번호는 등록 순서 그대로. 모델은 이 번호만 고르고 URL 은 만들지 않는다.
+// 올린 파일은 /img/<해시> 라 그대로 쓴다. imageBase 는 옛 스토리 대비로만 남긴다.
 function imgUrl(im){
-  const u=String(im.url||'').trim();
-  // 전체 주소이거나 올린 파일(/img/...)이면 그대로. 나머지만 앞부분을 붙인다.
-  if(/^https?:\/\//.test(u)||u.startsWith('/'))return u;
-  return String(state.imageBase||'').replace(/\/+$/,'')+'/'+u;
+  const u=String(im.url||'').trim(), base=String(state.imageBase||'').replace(/\/+$/,'');
+  return (/^https?:\/\//.test(u)||u.startsWith('/')||!base) ? u : base+'/'+u;
 }
 function renderMedia(c){
   c.innerHTML=
-  '<div class="fld"><label>주소 앞부분</label>'+
-    '<input id="f-imgbase" placeholder="https://uubao.uk/BA" value="'+esc(state.imageBase||'')+'">'+
-    '<div class="hint">아래 파일명 앞에 붙어요. 전체 주소를 적은 항목은 이 값을 무시합니다.</div></div>'+
   '<div class="fld"><label>이미지 목록</label>'+
     '<div class="hint">대화에서 <code>{img::번호}</code> 로 불러와요. 이름은 모델이 고르는 기준이라 비우면 목록에서 빠집니다.</div>'+
     '<div id="img-list"></div>'+
     '<input type="file" id="img-file" accept="image/*" multiple hidden>'+
-    '<div class="mrow-btns">'+
-      '<button class="btn-block" id="btn-upimg">'+I.plus+'<span>파일 올리기</span></button>'+
-      '<button class="btn-block" id="btn-addimg">'+I.plus+'<span>주소로 추가</span></button>'+
-    '</div></div>';
-  $('f-imgbase').oninput=e=>{state.imageBase=e.target.value;renderImgList();renderPreview();};
-  $('btn-addimg').onclick=()=>{
-    (state.images=state.images||[]).push({label:'',url:''});
-    renderImgList();renderPreview();
-  };
+    '<button class="btn-block" id="btn-upimg">'+I.plus+'<span>파일 올리기</span></button></div>';
   $('btn-upimg').onclick=()=>$('img-file').click();
   $('img-file').onchange=e=>{uploadImgs([...e.target.files]);e.target.value='';};
   renderImgList();
@@ -693,20 +681,14 @@ function renderImgList(){
       '<div class="mrow-th">'+(im.url?'<img src="'+esc(imgUrl(im))+'" alt="" onerror="this.parentNode.classList.add(\'bad\')">':'')+'</div>'+
       '<div class="mrow-f">'+
         '<input data-k="label" placeholder="이름 (예: 칸나 무표정)" value="'+esc(im.label||'')+'">'+
-        '<input data-k="url" placeholder="파일명 (예: C02.webp)" value="'+esc(im.url||'')+'">'+
       '</div>'+
       '<button class="mrow-x" title="삭제">'+I.trash+'</button>'+
     '</div>').join('');
   w.querySelectorAll('.mrow').forEach(row=>{
     const i=+row.dataset.i;
-    row.querySelectorAll('input').forEach(inp=>{
-      inp.oninput=e=>{
-        state.images[i][inp.dataset.k]=e.target.value;
-        if(inp.dataset.k==='url'){const t=row.querySelector('.mrow-th');t.classList.remove('bad');
-          t.innerHTML=e.target.value?'<img src="'+esc(imgUrl(state.images[i]))+'" alt="" onerror="this.parentNode.classList.add(\'bad\')">':'';}
-        renderPreview();
-      };
-    });
+    row.querySelector('[data-k=label]').oninput=e=>{
+      state.images[i].label=e.target.value;renderPreview();
+    };
     row.querySelector('.mrow-x').onclick=()=>{state.images.splice(i,1);renderImgList();renderPreview();};
   });
 }

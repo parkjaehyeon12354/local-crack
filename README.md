@@ -85,12 +85,12 @@ Images are addressed by number, not by URL. A story keeps a list —
 table and a URL-assembly rule. The model writes `{img::2}` and cannot get an
 address wrong, because it never sees one.
 
-Files can be uploaded rather than hosted: the builder POSTs the raw bytes to
-`/api/images`, the server checks the magic number (not the extension), names
-the file by its own SHA-256 so a re-upload is deduplicated, and serves it back
-from `/img/<hash>`. With uploads you need no bucket at all; `imageBase` is only
-for images you already host elsewhere, and entries starting with `/` or `http`
-ignore it.
+Images are uploaded, not hosted. The builder POSTs the raw bytes to
+`/api/images`; the server checks the magic number (not the extension), names
+the file by its own SHA-256 so a re-upload is deduplicated, and serves it from
+`/img/<hash>`. No bucket, no CDN, no configuration. Stories written against an
+external host still work — an entry keeps whatever URL it was saved with, and
+the legacy `imageBase` prefix is applied only when one is present.
 
 Chats store the raw `{img::2}` token. Substitution happens at render time, so
 re-pointing an image updates every past conversation. An unregistered number

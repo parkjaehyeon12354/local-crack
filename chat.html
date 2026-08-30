@@ -1063,10 +1063,10 @@ function imgSrc(n){
   let i = 1; rest.forEach(im => { while (byN[i]) i++; byN[i] = im; });
   const im = byN[n];
   if (!im || !im.url) return null;
+  // 옛 스토리는 imageBase + 파일명으로 저장돼 있다 — 그것만 조립해 준다
   const u = String(im.url).trim();
   const base = String((currentStory && currentStory.imageBase) || '').replace(/\/+$/, '');
-  // 전체 주소이거나 올린 파일(/img/...)이면 그대로 쓴다
-  const src = (/^https?:\/\//.test(u) || u.startsWith('/')) ? u : base + '/' + u;
+  const src = (/^https?:\/\//.test(u) || u.startsWith('/') || !base) ? u : base + '/' + u;
   return { src: src, label: String(im.label || '') };
 }
 // 토큰이 섞인 한 줄을 요소로 풀어 담는다. 모델 출력이라 textContent 만 쓴다.
