@@ -178,6 +178,13 @@ input::placeholder,textarea::placeholder{color:#5a5a5a}
 .adv-chev.open{transform:rotate(180deg)}
 
 /* ---------- keyword book ---------- */
+.sw-row{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+.sw-t{font-size:14px;color:#e8e8e8;margin-bottom:4px}
+.sw-row .hint{margin:0}
+.sw{flex:none;width:46px;height:26px;border-radius:13px;border:none;background:#2e2e2e;padding:3px;cursor:pointer;transition:background .15s}
+.sw span{display:block;width:20px;height:20px;border-radius:50%;background:#8a8a8a;transition:transform .15s,background .15s}
+.sw.on{background:#f5442e}
+.sw.on span{background:#fff;transform:translateX(20px)}
 .up-zone{border:1px dashed #333;border-radius:12px;padding:12px;margin-bottom:12px;transition:border-color .15s,background .15s}
 .up-zone.over{border-color:#f5442e;background:#1c1413}
 .up-zone .btn-block{margin:0}
@@ -381,7 +388,7 @@ const TABS=[ // id, label, required, works
 ];
 const WORK=['profile','story','start','media','keyword'];
 function defaultStart(){return {name:'기본 설정',prologue:'',situation:'',guide:''};}
-function defaultState(){return {id:null,title:'',subtitle:'',image:'',promptTemplate:'custom',prompt:'',starts:[defaultStart()],notes:[],images:[],imgRule:'fit'};}
+function defaultState(){return {id:null,title:'',subtitle:'',image:'',promptTemplate:'custom',prompt:'',starts:[defaultStart()],notes:[],images:[],imgOn:true,imgRule:'fit'};}
 let state=defaultState();
 let activeTab='profile', activeStart=0, rightMode='preview';
 let advOpen=false, alertClosed=false, editingNote=-1, noteFilter='all';
@@ -650,9 +657,15 @@ function imgUrl(im){
   return (/^https?:\/\//.test(u)||u.startsWith('/')||!base) ? u : base+'/'+u;
 }
 function renderMedia(c){
-  const rule=state.imgRule||'fit';
+  const rule=state.imgRule||'fit', on=state.imgOn!==false;
   const ropt=(v,t)=>'<option value="'+v+'"'+(rule===v?' selected':'')+'>'+t+'</option>';
   c.innerHTML=
+  '<div class="sw-row">'+
+    '<div><div class="sw-t">내부 이미지 사용</div>'+
+      '<div class="hint">끄면 이미지 목록이 프롬프트에서 통째로 빠져요. 올려둔 그림은 그대로 남습니다.</div></div>'+
+    '<button class="sw'+(on?' on':'')+'" id="f-imgon" role="switch"><span></span></button>'+
+  '</div>'+
+  '<div id="img-body"'+(on?'':' style="display:none"')+'>'+
   '<div class="fld"><label>언제 넣을지</label>'+
     '<select id="f-imgrule">'+
       ropt('fit','장면과 맞을 때만 — 맞는 게 없으면 안 넣음')+
@@ -667,7 +680,10 @@ function renderMedia(c){
       '<button class="btn-block" id="btn-upimg">'+I.plus+'<span>파일 올리기</span></button>'+
       '<div class="up-hint">여러 장을 한 번에 고르거나 여기로 끌어다 놓으세요</div>'+
     '</div>'+
-    '<div id="img-list"></div></div>';
+    '<div id="img-list"></div></div>'+
+  '</div>';
+  $('f-imgon').onclick=()=>{state.imgOn=state.imgOn===false;renderMedia(c);renderPreview();};
+  if(!on)return;   // 껐으면 아래 것들이 아예 없다
   $('f-imgrule').onchange=e=>{state.imgRule=e.target.value;renderPreview();};
   $('btn-upimg').onclick=()=>$('img-file').click();
   $('img-file').onchange=e=>{uploadImgs([...e.target.files]);e.target.value='';};

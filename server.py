@@ -273,8 +273,9 @@ def build_system(story, history=None, user_input="", persona="", usernote="",
     if (start.get("guide") or "").strip():
         parts.append(start["guide"].strip())
     # 이미지 — 규칙과 목록 모두 여기서 넣는다. 스토리 프롬프트에 적을 필요 없다.
-    # 방에서 끈 경우 목록째 빼서 모델이 고를 수가 없게 한다.
-    imgs = "" if img_off else img_lines(story)
+    # 스토리에서 끄거나(imgOn=False) 방에서 끄면 목록째 뺀다 — 규칙만 남기면
+    # 모델이 없는 번호를 지어낸다.
+    imgs = "" if (img_off or story.get("imgOn") is False) else img_lines(story)
     if imgs:
         parts.append(f"[이미지]\n{IMG_RULES.get(story.get('imgRule'), IMG_RULES['fit'])}\n"
                      "번호만 고른다. 주소·파일명·확장자를 쓰지 않는다. "
@@ -1326,6 +1327,13 @@ def selftest():
     # 방에서 끄면 목록째 빠진다 — 규칙만 남으면 모델이 없는 번호를 지어낸다
     ioff2 = build_system(dict(ps, images=ist["images"]), [], "", img_off=True)
     assert "[이미지]" not in ioff2 and "칸나 무표정" not in ioff2, ioff2
+    # 스토리에서 끈 경우도 마찬가지
+    soff = build_system(dict(ps, images=ist["images"], imgOn=False), [], "")
+    assert "[이미지]" not in soff and "칸나 무표정" not in soff, soff
+    # 없거나 True 면 켜진 것 — 옛 스토리엔 이 값이 아예 없다
+    for v in ({}, {"imgOn": True}):
+        assert "[이미지]" in build_system(
+            dict(ps, images=ist["images"], **v), [], ""), v
 
     # 저장 → 디스크에서 그대로 읽히는가 + 백업이 도는가
     import tempfile

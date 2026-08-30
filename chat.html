@@ -660,8 +660,9 @@ function renderDrawer(){
   cv.classList.toggle('on', !!chronicle.trim());
   const iv = document.getElementById('drImg');
   const has = ((currentStory && currentStory.images) || []).length;
-  // 등록된 그림이 없으면 켤 것도 없다 — 눌러도 아무 일 없는 줄을 두지 않는다
-  document.getElementById('drImgBtn').style.display = has ? '' : 'none';
+  const storyOn = !(currentStory && currentStory.imgOn === false);
+  // 그림이 없거나 스토리에서 아예 껐으면 방에서 켤 수가 없다
+  document.getElementById('drImgBtn').style.display = (has && storyOn) ? '' : 'none';
   iv.textContent = imgOff ? '꺼짐' : '켜짐 · ' + has + '장';
   iv.classList.toggle('on', !imgOff);
   const st = currentStory && currentStory.starts && currentStory.starts[0];
@@ -1095,8 +1096,9 @@ function appendLine(box, line){
   while ((mo = IMG_RE.exec(line))){
     flush(line.slice(last, mo.index).trim());
     last = mo.index + mo[0].length;
-    const n = parseInt(mo[1], 10), got = imgOff ? null : imgSrc(n);
-    if (imgOff){
+    const off = imgOff || (currentStory && currentStory.imgOn === false);
+    const n = parseInt(mo[1], 10), got = off ? null : imgSrc(n);
+    if (off){
       // 껐으면 옛 대화의 토큰도 조용히 감춘다. 원문은 그대로 남아 다시 켜면 돌아온다
     } else if (got){
       const im = document.createElement('img');
