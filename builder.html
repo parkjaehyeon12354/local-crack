@@ -143,7 +143,7 @@ input::placeholder,textarea::placeholder{color:#5a5a5a}
 .thumb img{width:100%;height:100%;object-fit:cover}
 .img-side{display:flex;flex-direction:column;justify-content:space-between;padding:2px 0;min-width:0}
 .img-guides{font-size:13px;color:#8a8a8a;line-height:1.8}
-.img-btns{display:flex;gap:8px}
+.mrow-btns{display:flex;gap:8px}
 .notice-box{
   display:flex;gap:8px;align-items:flex-start;background:#151515;border:1px solid #232323;
   border-radius:8px;padding:13px 16px;color:#8a8a8a;font-size:13px;line-height:1.55;margin-top:6px;
@@ -178,6 +178,18 @@ input::placeholder,textarea::placeholder{color:#5a5a5a}
 .adv-chev.open{transform:rotate(180deg)}
 
 /* ---------- keyword book ---------- */
+.mrow{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid #2a2a2a;border-radius:10px;margin-bottom:8px;background:#141414}
+.mrow-n{width:26px;flex:none;text-align:center;font-weight:700;color:#f5442e;font-size:14px}
+.mrow-th{width:52px;height:52px;flex:none;border-radius:8px;overflow:hidden;background:#1c1c1c;display:flex;align-items:center;justify-content:center}
+.mrow-th img{width:100%;height:100%;object-fit:cover}
+.mrow-th.bad{background:#2a1512}
+.mrow-th.bad img{display:none}
+.mrow-th.bad::after{content:'✕';color:#f5442e;font-size:16px}
+.mrow-f{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.mrow-f input{width:100%;background:#1a1a1a;border:1px solid #2e2e2e;border-radius:8px;padding:8px 10px;color:#eee;font-size:13px;font-family:inherit}
+.mrow-f input:focus{outline:none;border-color:#f5442e}
+.mrow-x{flex:none;background:none;border:none;color:#777;cursor:pointer;padding:6px;border-radius:6px}
+.mrow-x:hover{color:#f5442e;background:#221312}
 .note-empty{padding:56px 0;text-align:center;color:#666;font-size:14px}
 .note-row{display:flex;align-items:center;gap:12px;min-height:70px;padding:12px 0;border-bottom:1px solid #1c1c1c}
 .note-main{flex:1;min-width:0;cursor:pointer}
@@ -360,12 +372,12 @@ const I={
 /* ================= state ================= */
 const TABS=[ // id, label, required, works
  ['profile','프로필',1,1],['story','스토리 설정',1,1],['start','시작 설정',1,1],
- ['stat','스탯 설정',0,0],['media','미디어',0,0],['keyword','키워드북',0,1],
+ ['stat','스탯 설정',0,0],['media','이미지',0,1],['keyword','키워드북',0,1],
  ['shortcut','단축어',0,0],['ending','엔딩 설정',0,0],['register','등록',1,0]
 ];
-const WORK=['profile','story','start','keyword'];
+const WORK=['profile','story','start','media','keyword'];
 function defaultStart(){return {name:'기본 설정',prologue:'',situation:'',guide:''};}
-function defaultState(){return {id:null,title:'',subtitle:'',image:'',promptTemplate:'custom',prompt:'',starts:[defaultStart()],notes:[]};}
+function defaultState(){return {id:null,title:'',subtitle:'',image:'',promptTemplate:'custom',prompt:'',starts:[defaultStart()],notes:[],imageBase:'',images:[]};}
 let state=defaultState();
 let activeTab='profile', activeStart=0, rightMode='preview';
 let advOpen=false, alertClosed=false, editingNote=-1, noteFilter='all';
@@ -431,6 +443,7 @@ function renderForm(){
   if(activeTab==='profile')renderProfile(c);
   else if(activeTab==='story')renderStory(c);
   else if(activeTab==='start')renderStart(c);
+  else if(activeTab==='media')renderMedia(c);
   else if(activeTab==='keyword')renderKeyword(c);
   const i=WORK.indexOf(activeTab);
   $('btn-prev').style.visibility=i<=0?'hidden':'visible';
@@ -460,7 +473,7 @@ function renderProfile(c){
           '<div>부적절한 이미지는 업로드가 제한됩니다.</div>'+
           '<div>5MB 이하 (1,080 x 1,620px)</div>'+
         '</div>'+
-        '<div class="img-btns">'+
+        '<div class="mrow-btns">'+
           '<button class="btn-outline sm" id="btn-upload">'+I.upload+'<span>업로드</span></button>'+
           '<button class="btn-outline sm" id="btn-delimg">'+I.trash+'<span>삭제</span></button>'+
           '<button class="btn-outline sm" id="btn-genimg">'+I.spark+'<span>생성</span></button>'+
@@ -625,6 +638,80 @@ function autoPrologue(){
 }
 
 /* ================= tab 4: keyword book ================= */
+/* ================= tab: media ================= */
+// 번호는 등록 순서 그대로. 모델은 이 번호만 고르고 URL 은 만들지 않는다.
+function imgUrl(im){
+  const u=String(im.url||'').trim();
+  // 전체 주소이거나 올린 파일(/img/...)이면 그대로. 나머지만 앞부분을 붙인다.
+  if(/^https?:\/\//.test(u)||u.startsWith('/'))return u;
+  return String(state.imageBase||'').replace(/\/+$/,'')+'/'+u;
+}
+function renderMedia(c){
+  c.innerHTML=
+  '<div class="fld"><label>주소 앞부분</label>'+
+    '<input id="f-imgbase" placeholder="https://uubao.uk/BA" value="'+esc(state.imageBase||'')+'">'+
+    '<div class="hint">아래 파일명 앞에 붙어요. 전체 주소를 적은 항목은 이 값을 무시합니다.</div></div>'+
+  '<div class="fld"><label>이미지 목록</label>'+
+    '<div class="hint">대화에서 <code>{img::번호}</code> 로 불러와요. 이름은 모델이 고르는 기준이라 비우면 목록에서 빠집니다.</div>'+
+    '<div id="img-list"></div>'+
+    '<input type="file" id="img-file" accept="image/*" multiple hidden>'+
+    '<div class="mrow-btns">'+
+      '<button class="btn-block" id="btn-upimg">'+I.plus+'<span>파일 올리기</span></button>'+
+      '<button class="btn-block" id="btn-addimg">'+I.plus+'<span>주소로 추가</span></button>'+
+    '</div></div>';
+  $('f-imgbase').oninput=e=>{state.imageBase=e.target.value;renderImgList();renderPreview();};
+  $('btn-addimg').onclick=()=>{
+    (state.images=state.images||[]).push({label:'',url:''});
+    renderImgList();renderPreview();
+  };
+  $('btn-upimg').onclick=()=>$('img-file').click();
+  $('img-file').onchange=e=>{uploadImgs([...e.target.files]);e.target.value='';};
+  renderImgList();
+}
+// 파일을 서버에 올리고 /img/<해시> 주소를 목록에 넣는다.
+// 이름은 파일명에서 따 온다 — 안 그러면 목록에서 빠져 모델이 못 고른다.
+async function uploadImgs(files){
+  const btn=$('btn-upimg');if(btn){btn.disabled=true;btn.querySelector('span').textContent='올리는 중…';}
+  for(const f of files){
+    try{
+      const r=await fetch('/api/images',{method:'POST',body:f});
+      const j=await r.json();
+      if(!r.ok)throw new Error(j.error||'실패');
+      (state.images=state.images||[]).push({label:f.name.replace(/\.[^.]+$/,''),url:j.url});
+    }catch(err){ toast(f.name+': '+err.message); }
+  }
+  if(btn){btn.disabled=false;btn.querySelector('span').textContent='파일 올리기';}
+  renderImgList();renderPreview();
+}
+function renderImgList(){
+  const w=$('img-list');if(!w)return;
+  const list=state.images||[];
+  if(!list.length){w.innerHTML='<div class="note-empty">등록한 이미지가 없어요</div>';return;}
+  w.innerHTML=list.map((im,i)=>
+    '<div class="mrow" data-i="'+i+'">'+
+      '<div class="mrow-n">'+(i+1)+'</div>'+
+      '<div class="mrow-th">'+(im.url?'<img src="'+esc(imgUrl(im))+'" alt="" onerror="this.parentNode.classList.add(\'bad\')">':'')+'</div>'+
+      '<div class="mrow-f">'+
+        '<input data-k="label" placeholder="이름 (예: 칸나 무표정)" value="'+esc(im.label||'')+'">'+
+        '<input data-k="url" placeholder="파일명 (예: C02.webp)" value="'+esc(im.url||'')+'">'+
+      '</div>'+
+      '<button class="mrow-x" title="삭제">'+I.trash+'</button>'+
+    '</div>').join('');
+  w.querySelectorAll('.mrow').forEach(row=>{
+    const i=+row.dataset.i;
+    row.querySelectorAll('input').forEach(inp=>{
+      inp.oninput=e=>{
+        state.images[i][inp.dataset.k]=e.target.value;
+        if(inp.dataset.k==='url'){const t=row.querySelector('.mrow-th');t.classList.remove('bad');
+          t.innerHTML=e.target.value?'<img src="'+esc(imgUrl(state.images[i]))+'" alt="" onerror="this.parentNode.classList.add(\'bad\')">':'';}
+        renderPreview();
+      };
+    });
+    row.querySelector('.mrow-x').onclick=()=>{state.images.splice(i,1);renderImgList();renderPreview();};
+  });
+}
+
+/* ================= tab 4: keyword ================= */
 function renderKeyword(c){
   c.innerHTML=
   '<div class="chips" id="note-filters"></div>'+
@@ -751,7 +838,7 @@ function renderPreview(){
   const p=$('preview-col');
   if(rightMode==='history'){renderHistoryPanel(p);return;}
   if(activeTab==='story'||activeTab==='start'){p.innerHTML=chatHTML();bindChat();return;}
-  if(activeTab==='profile'||activeTab==='keyword'){p.innerHTML=cardHTML();return;}
+  if(activeTab==='profile'||activeTab==='keyword'||activeTab==='media'){p.innerHTML=cardHTML();return;}
   p.innerHTML='';
 }
 function chatHTML(){

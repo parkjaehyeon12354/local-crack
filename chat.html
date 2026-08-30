@@ -207,6 +207,8 @@ button{font-family:inherit;}
 .msg{margin:20px 0;word-break:break-word;}
 .msg.assistant p{font-size:15px;line-height:1.75;margin:0 0 12px;color:#e8e8e8;}
 .msg.assistant p:last-child{margin-bottom:0;}
+.msg-img{display:block;max-width:min(100%,420px);border-radius:12px;margin:0 0 12px;}
+.msg-img-miss{display:inline-block;padding:10px 14px;margin:0 0 12px;border:1px dashed #3a3a3a;border-radius:10px;color:#777;font-size:13px;background:#161616;}
 .msg.assistant.error p{color:#ff6b5e;}
 .msg.user{display:flex;justify-content:flex-end;}
 .msg.user .bubble{background:#2b2b2b;border-radius:14px;padding:10px 15px;max-width:70%;font-size:15px;line-height:1.65;white-space:pre-wrap;}
@@ -1050,6 +1052,54 @@ function makeActionRow(){
   row.appendChild(right);
   return row;
 }
+// {img::N} → 실제 그림. 저장은 토큰 그대로 두고 그릴 때만 바꾼다 —
+// 나중에 이미지를 갈아끼우면 옛 대화도 새 그림으로 뜬다.
+const IMG_RE = /\{img::\s*(\d+)\s*\}/g;
+function imgSrc(n){
+  const list = (currentStory && currentStory.images) || [];
+  const byN = {}; const rest = [];
+  list.forEach(im => { const k = parseInt(im && im.n, 10);
+    if (Number.isFinite(k)) byN[k] = im; else rest.push(im); });
+  let i = 1; rest.forEach(im => { while (byN[i]) i++; byN[i] = im; });
+  const im = byN[n];
+  if (!im || !im.url) return null;
+  const u = String(im.url).trim();
+  const base = String((currentStory && currentStory.imageBase) || '').replace(/\/+$/, '');
+  // 전체 주소이거나 올린 파일(/img/...)이면 그대로 쓴다
+  const src = (/^https?:\/\//.test(u) || u.startsWith('/')) ? u : base + '/' + u;
+  return { src: src, label: String(im.label || '') };
+}
+// 토큰이 섞인 한 줄을 요소로 풀어 담는다. 모델 출력이라 textContent 만 쓴다.
+function appendLine(box, line){
+  IMG_RE.lastIndex = 0;
+  let last = 0, mo, wrote = false;
+  const flush = t => { if (!t) return; const pe = document.createElement('p');
+    pe.textContent = t; box.appendChild(pe); wrote = true; };
+  while ((mo = IMG_RE.exec(line))){
+    flush(line.slice(last, mo.index).trim());
+    last = mo.index + mo[0].length;
+    const n = parseInt(mo[1], 10), got = imgSrc(n);
+    if (got){
+      const im = document.createElement('img');
+      im.className = 'msg-img'; im.src = got.src; im.alt = got.label;
+      im.title = got.label; im.loading = 'lazy';
+      im.onerror = () => { im.replaceWith(missingImg('이미지 ' + n + ' 못 불러옴')); };
+      box.appendChild(im);
+    } else {
+      // 조용히 지우지 않는다 — 등록을 빠뜨린 걸 알아야 고친다
+      box.appendChild(missingImg('이미지 ' + n + ' 없음'));
+    }
+    wrote = true;
+  }
+  flush(line.slice(last).trim());
+  return wrote;
+}
+function missingImg(text){
+  const d = document.createElement('div');
+  d.className = 'msg-img-miss'; d.textContent = text;
+  return d;
+}
+
 function renderMessages(){
   msgsEl.innerHTML = '';
   const lastEntry = log[log.length - 1];
@@ -1066,9 +1116,7 @@ function renderMessages(){
       div.className = 'msg assistant' + (m.error ? ' error' : '');
       String(m.content).split('\n').forEach(p => {
         if (!p.trim()) return;
-        const pe = document.createElement('p');
-        pe.textContent = p;
-        div.appendChild(pe);
+        appendLine(div, p);
       });
       if (m.fired && m.fired.length){
         const f = document.createElement('div');

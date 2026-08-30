@@ -7,6 +7,7 @@
 import json
 import os
 import re
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,8 @@ CHATS = DATA / "chats"
 BACKUPS = DATA / "backups"
 PROVIDERS = DATA / "providers.json"   # 손으로 추가한 제공사 (키는 여기 안 들어간다)
 PERSONAS = DATA / "personas.json"     # 대화 프로필 목록
+IMAGES = DATA / "images"              # 올린 그림. 파일로 둔다 — base64 로
+                                      # 스토리 JSON 에 넣으면 500장에 터진다
 MAX_DRAFTS = 0  # 0 = 무제한. 지우는 건 사용자가 정한다
 MAX_CHATS = 0
 KEEP_BACKUPS = 14  # 하루 1개씩 이만큼 보관
@@ -71,6 +74,86 @@ def active_notes(notes, history, user_input, scan_turns=SCAN_TURNS,
     return [n for n in notes
             if in_scope(n, start_name)
             and any(keyword_hits(k, hay) for k in n.get("keywords", []))]
+
+
+# ── 이미지 ───────────────────────────────────────────────────
+# 모델은 URL 을 만들지 않는다. {img::3} 처럼 번호만 고르고, 번호 →
+# 주소 대응은 스토리에 저장해 둔다. 주소가 바뀌어도 옛 대화가 살아난다.
+IMG_RE = re.compile(r"\{img::\s*(\d+)\s*\}")
+
+
+def img_map(story):
+    """{번호: (이름, 주소)}. 번호를 적어둔 것이 먼저고, 번호 없는 것은
+    남는 자리를 순서대로 채운다 — 안 그러면 적어둔 번호를 덮어써 버린다."""
+    items = [im for im in (story.get("images") or []) if isinstance(im, dict)]
+    out, rest = {}, []
+    for im in items:
+        try:
+            out[int(im["n"])] = im
+        except (KeyError, TypeError, ValueError):
+            rest.append(im)
+    n = 1
+    for im in rest:
+        while n in out:
+            n += 1
+        out[n] = im
+    return {k: (str(v.get("label") or "").strip(),
+                str(v.get("url") or "").strip()) for k, v in out.items()}
+
+
+def img_lines(story):
+    """프롬프트에 넣을 목록. 이름 없는 건 뺀다 — 모델이 고를 근거가 없다."""
+    m = img_map(story)
+    return " ".join(f"{n}={lb}" for n, (lb, _) in sorted(m.items()) if lb)
+
+
+def img_to_label(text, story):
+    """모델에게 보낼 때. {img::3} → [이미지: 칸나 무표정].
+    번호만 남기면 자기가 뭘 골랐는지 모른 채 다음 턴을 쓴다."""
+    m = img_map(story)
+    def one(mo):
+        n = int(mo.group(1))
+        lb = m.get(n, ("", ""))[0]
+        return f"[이미지: {lb}]" if lb else f"[이미지 {n}]"
+    return IMG_RE.sub(one, str(text or ""))
+
+
+# 올릴 수 있는 것만. 확장자로 정하지 않는다 — 파일 앞머리(매직 넘버)를 본다.
+IMG_KINDS = [
+    (b"\x89PNG\r\n\x1a\n", ".png", "image/png"),
+    (b"\xff\xd8\xff", ".jpg", "image/jpeg"),
+    (b"GIF87a", ".gif", "image/gif"),
+    (b"GIF89a", ".gif", "image/gif"),
+]
+MAX_IMG = 8 * 1024 * 1024
+
+
+def sniff_image(blob):
+    """(확장자, mime) 또는 None. webp 는 RIFF....WEBP 라 따로 본다."""
+    for magic, ext, mime in IMG_KINDS:
+        if blob.startswith(magic):
+            return ext, mime
+    if blob[:4] == b"RIFF" and blob[8:12] == b"WEBP":
+        return ".webp", "image/webp"
+    return None
+
+
+def save_image(blob):
+    """내용 해시로 저장한다 — 같은 그림을 두 번 올려도 파일 하나."""
+    kind = sniff_image(blob)
+    if not kind:
+        raise ValueError("PNG · JPG · GIF · WEBP 만 올릴 수 있어요")
+    if len(blob) > MAX_IMG:
+        raise ValueError("8MB 까지만 올릴 수 있어요")
+    ext, _ = kind
+    name = hashlib.sha256(blob).hexdigest()[:16] + ext
+    IMAGES.mkdir(parents=True, exist_ok=True)
+    dst = IMAGES / name
+    if not dst.exists():
+        tmp = IMAGES / f".{name}.tmp"
+        tmp.write_bytes(blob)
+        tmp.replace(dst)
+    return name
 
 
 def persona_name(persona):
@@ -179,6 +262,10 @@ def build_system(story, history=None, user_input="", persona="", usernote="",
     # 시작 설정의 플레이 가이드도 매 턴 들어간다
     if (start.get("guide") or "").strip():
         parts.append(start["guide"].strip())
+    # 이미지 목록 — 프롬프트에 코드 조합 규칙을 적지 않기 위한 것
+    imgs = img_lines(story)
+    if imgs:
+        parts.append("[이미지] 출력은 {img::번호} 형식만 쓴다. URL✕\n" + imgs)
     # 사건 기록 — 쌓인 연대기 중 지금 이야기와 겹치는 부분만
     chron = (chronicle or "").strip()
     if chron and not chron_all:
@@ -772,6 +859,24 @@ class Handler(SimpleHTTPRequestHandler):
         return None, ""
 
     def do_GET(self):
+        if self.path.startswith("/img/"):
+            # 데이터 폴더는 소스 밖에 있을 수 있어 기본 정적 서빙이 못 찾는다.
+            # 이름만 취해 폴더 밖으로 못 나가게 한다.
+            name = os.path.basename(urllib.parse.unquote(self.path[5:]))
+            f = IMAGES / name
+            kind = None
+            if name and f.is_file():
+                kind = sniff_image(f.read_bytes()[:16])
+            if not kind:
+                return self._json({"error": "없는 이미지"}, 404)
+            body = f.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", kind[1])
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            self.end_headers()
+            return self.wfile.write(body)
+
         if self.path == "/api/personas":
             return self._json(load_list(PERSONAS))
         if self.path == "/api/providers":
@@ -807,6 +912,18 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0))
+        if self.path == "/api/images":
+            # 본문이 그림 자체다. JSON 으로 읽으면 당연히 깨진다 —
+            # 다른 경로보다 먼저 처리해야 하는 이유.
+            try:
+                if n <= 0 or n > MAX_IMG:
+                    raise ValueError("8MB 까지만 올릴 수 있어요")
+                name = save_image(self.rfile.read(n))
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+            except Exception as e:
+                return self._json({"error": f"저장하지 못했어요: {e}"}, 500)
+            return self._json({"url": "/img/" + name})
         data = json.loads(self.rfile.read(n) or b"{}")
         if self.path == "/api/recap":
             # 손으로 누르는 요약. mode: full(전체 다시) | append(누적분 추가)
@@ -900,9 +1017,11 @@ class Handler(SimpleHTTPRequestHandler):
 
             system = build_system(story, hist, msg, persona, usernote, memory,
                                   chronicle, bool(data.get("chron_all")))
-            # 사용자가 친 말 안의 {user}/{char} 도 같이 치환한다
-            msg = subst(msg, story, persona)
-            hist = [dict(m2, content=subst(m2.get("content", ""), story, persona))
+            # 사용자가 친 말 안의 {user}/{char} 도 같이 치환한다.
+            # {img::N} 은 이름으로 풀어 보낸다 — 번호만 보면 뭘 골랐는지 모른다.
+            msg = img_to_label(subst(msg, story, persona), story)
+            hist = [dict(m2, content=img_to_label(
+                subst(m2.get("content", ""), story, persona), story))
                     for m2 in hist]
             fired = [n["title"] for n in
                      active_notes(story.get("notes", []), hist, msg,
@@ -1122,6 +1241,7 @@ def selftest():
         ch, [{"role": "user", "content": "서린을 다시 만난다"}], "계속.", top=1)
     # 통째로 넣기
     allgot = build_system(ps, [], "상관없는 말", chronicle=ch, chron_all=True)
+
     assert "정지안" in allgot and "유나" in allgot, allgot
     # 덩어리가 top(3)보다 많을 때만 고르기가 의미 있다
     ch4 = ch + "\n\n■ 인물별 ~60턴\n- 사이토 칸나\n  - 태성그룹 회장"
@@ -1131,6 +1251,55 @@ def selftest():
     # 관련 없으면 블록째 안 들어간다
     none = build_system(ps, [], "상관없는 요리 이야기", chronicle=ch4)
     assert "[지금까지 있었던 일]" not in none, none
+
+    # 이미지: 번호 → 이름/주소
+    ist = {"title": "T", "images": [
+        {"n": 1, "label": "칸나 무표정", "url": "BA/C02.webp"},
+        {"n": 3, "label": "유나 애교", "url": "BA/D06.webp"},
+        {"label": "이름없음", "url": ""},          # n 없으면 등록 순서
+        {"n": 5, "label": "", "url": "BA/X.webp"},  # 이름 없으면 목록에서 뺀다
+    ]}
+    m = img_map(ist)
+    assert m[1] == ("칸나 무표정", "BA/C02.webp") and m[3][0] == "유나 애교", m
+    # 번호 없는 것이 적어둔 번호를 덮어쓰면 안 된다
+    assert m[2][0] == "이름없음", m
+    assert 5 in m and m[5][0] == ""
+    lines = img_lines(ist)
+    assert "1=칸나 무표정" in lines and "3=유나 애교" in lines
+    assert "5=" not in lines, "이름 없는 건 목록에 없어야 한다: " + lines
+    # 모델에게 갈 때는 이름으로 풀린다
+    assert img_to_label("보라 {img::1} 그리고 {img::3}", ist) == \
+        "보라 [이미지: 칸나 무표정] 그리고 [이미지: 유나 애교]"
+    assert img_to_label("{img:: 3 }", ist) == "[이미지: 유나 애교]"   # 공백 허용
+    assert img_to_label("{img::99}", ist) == "[이미지 99]"            # 없는 번호
+    assert img_to_label("그냥 글", ist) == "그냥 글"
+    assert img_lines({"title": "T"}) == ""      # 이미지가 없으면 빈 문자열
+
+    # 올린 그림: 확장자가 아니라 파일 앞머리로 종류를 정한다
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 40
+    assert sniff_image(png) == (".png", "image/png")
+    assert sniff_image(b"\xff\xd8\xff\xe0" + b"0" * 20)[0] == ".jpg"
+    assert sniff_image(b"GIF89a" + b"0" * 20)[0] == ".gif"
+    assert sniff_image(b"RIFF" + b"1234" + b"WEBP" + b"0" * 20)[0] == ".webp"
+    assert sniff_image(b"RIFF" + b"1234" + b"WAVE" + b"0" * 20) is None  # 소리는 ✕
+    assert sniff_image(b"<?php echo 1;") is None
+    assert sniff_image(b"") is None
+    n1 = save_image(png)
+    assert n1.endswith(".png") and (IMAGES / n1).is_file()
+    assert (IMAGES / n1).read_bytes() == png
+    assert save_image(png) == n1, "같은 그림은 파일 하나여야 한다"
+    assert save_image(png + b"x") != n1
+    try:
+        save_image(b"not an image")
+        raise SystemExit("이미지가 아닌 것을 받았다")
+    except ValueError:
+        pass
+    for junk in (n1, save_image(png + b"x")):
+        (IMAGES / junk).unlink(missing_ok=True)
+    # 프롬프트에 목록이 들어가고, 없으면 블록째 안 들어간다
+    igot = build_system(dict(ps, images=ist["images"]), [], "")
+    assert "{img::번호}" in igot and "1=칸나 무표정" in igot, igot
+    assert "[이미지]" not in build_system(ps, [], "")
 
     # 저장 → 디스크에서 그대로 읽히는가 + 백업이 도는가
     import tempfile

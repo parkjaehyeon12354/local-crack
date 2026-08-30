@@ -72,6 +72,32 @@ including the model's own output, so an emoji style-switch keeps itself alive
 until it scrolls out of the window. Scope pins a note to one start setting;
 notes scoped elsewhere never fire.
 
+### Images
+
+Images are addressed by number, not by URL. A story keeps a list —
+
+```json
+"imageBase": "https://uubao.uk/BA",
+"images": [{"n": 1, "label": "Kanna, blank", "url": "C02.webp"}]
+```
+
+— and the prompt receives one line, `1=Kanna, blank 2=...`, instead of a code
+table and a URL-assembly rule. The model writes `{img::2}` and cannot get an
+address wrong, because it never sees one.
+
+Files can be uploaded rather than hosted: the builder POSTs the raw bytes to
+`/api/images`, the server checks the magic number (not the extension), names
+the file by its own SHA-256 so a re-upload is deduplicated, and serves it back
+from `/img/<hash>`. With uploads you need no bucket at all; `imageBase` is only
+for images you already host elsewhere, and entries starting with `/` or `http`
+ignore it.
+
+Chats store the raw `{img::2}` token. Substitution happens at render time, so
+re-pointing an image updates every past conversation. An unregistered number
+renders as a visible placeholder rather than vanishing. Going the other way,
+history sent to the model is rewritten to `[image: Kanna, blank]` — a bare
+number tells it nothing about what it just showed.
+
 ### Event log
 
 Every N turns (per chat, default 20) the server summarises what actually
