@@ -450,6 +450,10 @@ def discover_providers():
         found.insert(0, {"id": "anthropic", "name": "Anthropic", "icon": "◆",
                          "color": "#d97757", "kind": "claude", "src": "cli",
                          "desc": "Claude Code CLI 구독을 그대로 쓴다"})
+    if AGY:
+        found.insert(0, {"id": "antigravity", "name": "Antigravity", "icon": "🚀",
+                         "color": "#4285f4", "kind": "agy", "src": "cli",
+                         "desc": "Antigravity CLI 구독을 그대로 쓴다"})
     found.append({"id": "ollama", "name": "로컬 (ollama)", "icon": "🖥️",
                   "color": "#9a9a9a", "url": "http://127.0.0.1:11434/v1",
                   "key_env": None, "src": "local", "desc": "내 GPU 에서 돈다"})
@@ -506,6 +510,43 @@ def _claude_models():
                 {"at": time.time(), "models": [{"id": i} for i in fresh]},
                 ensure_ascii=False), encoding="utf-8")
     return [{"id": i, "name": i} for i in dict.fromkeys(ids)]
+
+
+# Antigravity CLI. PATH 에 없을 수 있어 알려진 자리도 같이 본다.
+AGY = shutil.which("agy") or next(
+    (str(p) for p in (Path("/mnt/d/agy/bin/agy"),
+                      Path.home() / ".local/bin/agy") if p.is_file()), "")
+AGY_CACHE = DATA / "agy-models.json"
+AGY_SANDBOX = DATA / "agy-run"      # 코딩 에이전트가 뒤질 빈 작업 폴더
+
+
+def _agy_models():
+    """`agy models` 는 '아이디<탭>표시이름' 을 뱉는다. 로그인 안 됐으면 빈 목록."""
+    try:
+        c = json.loads(AGY_CACHE.read_text(encoding="utf-8"))
+        if time.time() - c.get("at", 0) < 7 * 86400 and c.get("models"):
+            return c["models"]
+    except Exception:
+        pass
+    try:
+        r = subprocess.run([AGY, "models"], capture_output=True, text=True,
+                           timeout=120)
+    except Exception:
+        return []
+    out = []
+    for line in r.stdout.splitlines():
+        if "\t" not in line:
+            continue
+        mid, _, nm = line.partition("\t")
+        mid, nm = mid.strip(), nm.strip()
+        # 'Fetching...' 같은 안내문은 탭이 없어 여기까지 오지 않는다
+        if mid and nm:
+            out.append({"id": mid, "name": nm})
+    if out:
+        AGY_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        AGY_CACHE.write_text(json.dumps({"at": time.time(), "models": out},
+                                        ensure_ascii=False), encoding="utf-8")
+    return out
 
 
 CLAUDE_CREDS = Path.home() / ".claude" / ".credentials.json"
@@ -608,6 +649,9 @@ def _fetch_models(p, timeout=8):
     if p.get("kind") == "claude":
         m = _claude_models()
         return m, ("" if m else "claude 모델 목록을 못 찾음")
+    if p.get("kind") == "agy":
+        m = _agy_models()
+        return m, ("" if m else "로그인이 필요해요 (터미널에서 agy 실행)")
 
     # probe(추가 전 검사)는 캐시를 안 쓴다 — 죽은 키가 캐시 덕에 통과하면 안 된다
     cached = [] if p.get("probe") else _hermes_cached(
@@ -684,6 +728,20 @@ def chat(model_id, system, history, user_input, max_tokens=0):
         if r.returncode != 0:
             raise RuntimeError((r.stderr or r.stdout)[:300])
         return r.stdout.strip()
+
+    if p.get("kind") == "agy":
+        # Antigravity CLI. --append-system-prompt 가 없어 system 을 본문 앞에 붙인다.
+        # 코딩 에이전트라 파일을 건드리지 않도록 빈 폴더에서 돌린다.
+        convo = "\n\n".join(f"{m['role']}: {m['content']}" for m in msgs[1:])
+        AGY_SANDBOX.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(
+            [AGY, "-p", f"{system}\n\n---\n\n{convo}", "--model", name,
+             "--print-timeout", "5m"],
+            capture_output=True, text=True, timeout=330, cwd=str(AGY_SANDBOX))
+        out = (r.stdout or "").strip()
+        if r.returncode != 0 or not out:
+            raise RuntimeError(((r.stderr or out) or "빈 응답")[:300])
+        return out
 
     body = {"model": name, "messages": msgs, "stream": False}
     if max_tokens:
@@ -1334,6 +1392,32 @@ def selftest():
     for v in ({}, {"imgOn": True}):
         assert "[이미지]" in build_system(
             dict(ps, images=ist["images"], **v), [], ""), v
+
+    # 제공사 목록에 CLI 두 개가 다 뜨는가 (설치돼 있을 때만)
+    provs = discover_providers()
+    kinds = {p.get("kind") for p in provs}
+    if AGY:
+        agy = [p for p in provs if p.get("kind") == "agy"]
+        assert len(agy) == 1, agy
+        assert agy[0]["src"] == "cli" and agy[0]["id"] == "antigravity", agy[0]
+        # 키를 안 쓴다 — key_env 를 넣으면 '키 없음' 으로 빠진다
+        assert not agy[0].get("key_env"), agy[0]
+
+    # agy models 출력 파싱: 탭이 있는 줄만 모델이다
+    def _parse(out):
+        rows = [ln.partition("\t") for ln in out.splitlines() if "\t" in ln]
+        return [{"id": a.strip(), "name": c.strip()} for a, _, c in rows
+                if a.strip() and c.strip()]
+    got = _parse("Fetching available models...\n"
+                 "gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n"
+                 "claude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n"
+                 "\n")
+    assert got == [{"id": "gemini-3.7-flash-high", "name": "Gemini 3.7 Flash (High)"},
+                   {"id": "claude-opus-4-6-thinking",
+                    "name": "Claude Opus 4.6 (Thinking)"}], got
+    assert _parse("Error: Please sign in to view available models.") == []
+    # 탭 없는 안내문이 모델로 새어들면 안 된다 (구분자는 탭뿐)
+    assert _parse("Fetching available models...\nSome notice line\n") == []
 
     # 저장 → 디스크에서 그대로 읽히는가 + 백업이 도는가
     import tempfile
