@@ -328,7 +328,7 @@ button{font-family:inherit;}
   <button class="dr-i" data-open="note"><span class="dr-ic">📝</span>유저 노트<span class="dr-v" id="drNote"></span></button>
   <button class="dr-i" data-open="memory"><span class="dr-ic">🧠</span>장기 기억<span class="dr-v" id="drMem"></span></button>
   <button class="dr-i" data-open="chronicle"><span class="dr-ic">📜</span>사건 기록<span class="dr-v" id="drChron"></span></button>
-  <button class="dr-i" id="drImgBtn"><span class="dr-ic">🖼</span>이미지<span class="dr-v" id="drImg"></span></button>
+  <button class="dr-i" id="drImgBtn" data-open="img"><span class="dr-ic">🖼</span>이미지<span class="dr-v" id="drImg"></span></button>
   <button class="dr-i" data-open="gen"><span class="dr-ic">⚙</span>출력·추론<span class="dr-v" id="drGen"></span></button>
   <div class="dr-h">시작 설정</div>
   <div class="dr-flat" id="drStart">기본 설정</div>
@@ -685,13 +685,6 @@ function toggleDrawer(){
   drawer.classList.toggle('open');
   if (drawer.classList.contains('open')) renderDrawer();
 }
-// 이미지는 모달 없이 그 자리에서 켜고 끈다 — 고를 게 없으니 화면 하나가 낭비다
-document.getElementById('drImgBtn').onclick = e => {
-  e.stopPropagation();
-  imgOff = !imgOff;
-  // 서랍 라벨이 곧 '켜짐/꺼짐' 이라 따로 알릴 게 없다
-  renderDrawer(); renderMessages(); saveChat();
-};
 document.getElementById('btn-drawer').onclick = e => { e.stopPropagation(); toggleDrawer(); };
 // 서랍 밖을 누르면 닫는다 (모달이 떠 있을 땐 놔둔다)
 document.addEventListener('click', e => {
@@ -709,6 +702,13 @@ drawer.addEventListener('click', e => {
   else if (what === 'memory') openMemory();
   else if (what === 'chronicle') openChronicle();
   else if (what === 'gen') openGen();
+  // 이미지는 모달 없이 그 자리에서 켜고 끈다 — 고를 게 없으니 화면 하나가 낭비다.
+  // data-open 없이 자체 onclick 을 걸었더니 이 위임이 같은 클릭을 또 받아
+  // closest() 가 위 형제(유저 노트)를 잡아 엉뚱한 모달이 열렸다.
+  else if (what === 'img') {
+    imgOff = !imgOff;
+    renderDrawer(); renderMessages(); saveChat();
+  }
 });
 
 const EFFORT_KO = {low:'낮음', medium:'보통', high:'높음'};

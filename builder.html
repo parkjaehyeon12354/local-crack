@@ -189,6 +189,10 @@ input::placeholder,textarea::placeholder{color:#5a5a5a}
 .up-zone.over{border-color:#f5442e;background:#1c1413}
 .up-zone .btn-block{margin:0}
 .up-hint{text-align:center;color:#666;font-size:12px;margin-top:8px}
+.name-bar{display:flex;align-items:center;gap:10px;margin:10px 0 6px}
+.btn-ai{background:#1a1a1a;border:1px solid #2e2e2e;color:#eee;border-radius:8px;padding:7px 12px;font-size:13px;font-family:inherit;cursor:pointer}
+.btn-ai:hover{border-color:#f5442e;color:#f5442e}
+.btn-ai:disabled{opacity:.5;cursor:default;border-color:#2e2e2e;color:#777}
 .mrow{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid #2a2a2a;border-radius:10px;margin-bottom:8px;background:#141414}
 .mrow-n{width:26px;flex:none;text-align:center;font-weight:700;color:#f5442e;font-size:14px}
 .mrow-th{width:52px;height:52px;flex:none;border-radius:8px;overflow:hidden;background:#1c1c1c;display:flex;align-items:center;justify-content:center}
@@ -680,6 +684,10 @@ function renderMedia(c){
       '<button class="btn-block" id="btn-upimg">'+I.plus+'<span>파일 올리기</span></button>'+
       '<div class="up-hint">여러 장을 한 번에 고르거나 여기로 끌어다 놓으세요</div>'+
     '</div>'+
+    '<div class="name-bar" id="name-bar" style="display:none">'+
+      '<button class="btn-ai" id="btn-ainame">이름 없는 것만 AI로 짓기</button>'+
+      '<span class="hint" id="ainame-st"></span>'+
+    '</div>'+
     '<div id="img-list"></div></div>'+
   '</div>';
   $('f-imgon').onclick=()=>{state.imgOn=state.imgOn===false;renderMedia(c);renderPreview();};
@@ -692,6 +700,39 @@ function renderMedia(c){
   ['dragleave','drop'].forEach(ev=>z.addEventListener(ev,e=>{e.preventDefault();z.classList.remove('over');}));
   z.addEventListener('drop',e=>uploadImgs([...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'))));
   renderImgList();
+  $('btn-ainame').onclick=aiNameImages;
+}
+// 이름이 빈 그림만 모델에게 보여 주고 이름을 받는다.
+// 사람이 적어 둔 이름은 건드리지 않는다 — 덮어쓰면 되돌릴 방법이 없다.
+// 서브모델이 있으면 그걸 쓴다 (요약과 같은 자리 — 싼 모델로 충분하다).
+async function aiNameImages(){
+  const list=state.images||[];
+  const todo=list.map((im,i)=>({im,i})).filter(x=>!(x.im.label||'').trim()&&x.im.url);
+  if(!todo.length){toast('이름 없는 그림이 없어요');return;}
+  const model=localStorage.getItem('crack.subModel')||localStorage.getItem('crack.defaultModel')||'';
+  if(!model){toast('설정에서 기본 모델을 먼저 골라 주세요');return;}
+  const btn=$('btn-ainame'),st=$('ainame-st');
+  btn.disabled=true;
+  let done=0,fail=0;
+  const tick=()=>{st.textContent='짓는 중… '+(done+fail)+'/'+todo.length;};
+  tick();
+  // 한꺼번에 보내면 제공사가 막는다. 3장씩 끊어서 보낸다.
+  for(let s=0;s<todo.length;s+=3){
+    await Promise.all(todo.slice(s,s+3).map(async x=>{
+      try{
+        const r=await fetch('/api/name-image',{method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({model,url:x.im.url})});
+        const j=await r.json();
+        if(!r.ok||!j.label)throw new Error(j.error||'빈 이름');
+        state.images[x.i].label=j.label; done++;
+      }catch(e){ fail++; }
+      finally{ tick(); renderImgList(); }
+    }));
+  }
+  btn.disabled=false;
+  st.textContent=done+'장 지었어요'+(fail?' ('+fail+'장 실패)':'');
+  renderPreview();
 }
 // 파일을 서버에 올리고 /img/<해시> 주소를 목록에 넣는다.
 // 이름은 파일명에서 따 온다 — 안 그러면 목록에서 빠져 모델이 못 고른다.
@@ -720,6 +761,9 @@ async function uploadImgs(files){
 function renderImgList(){
   const w=$('img-list');if(!w)return;
   const list=state.images||[];
+  // 이름 없는 그림이 있을 때만 버튼을 보인다 — 할 일이 없으면 띄울 이유가 없다
+  const bar=$('name-bar');
+  if(bar)bar.style.display=list.some(im=>!(im.label||'').trim()&&im.url)?'flex':'none';
   if(!list.length){w.innerHTML='<div class="note-empty">등록한 이미지가 없어요</div>';return;}
   w.innerHTML=list.map((im,i)=>
     '<div class="mrow" data-i="'+i+'">'+

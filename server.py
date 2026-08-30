@@ -4,6 +4,7 @@
 실행:  python3 server.py            → http://127.0.0.1:8787
 자체검사: python3 server.py --selftest
 """
+import base64
 import json
 import os
 import re
@@ -854,6 +855,62 @@ def chat(model_id, system, history, user_input, max_tokens=0, effort="",
     return take(d)
 
 
+NAME_PROMPT = (
+    "이 그림에 붙일 짧은 한국어 이름을 하나만 답해라. "
+    "롤플레이 중 모델이 '지금 장면에 맞는 그림'을 고르는 기준이 되므로, "
+    "누가 어떤 상태인지가 드러나야 한다. "
+    "예: '칸나 무표정', '지안 우는 얼굴', '비 오는 골목'. "
+    "12자 이내. 설명·따옴표·마침표 없이 이름만 적어라."
+)
+
+
+def name_image(model_id, blob, mime):
+    """그림 한 장을 보고 이름을 짓는다. 실패하면 빈 문자열 —
+    이름이 비면 목록에서 빠질 뿐이라 업로드 자체를 막을 이유는 없다."""
+    p = _by_model.get(model_id)
+    if not p:
+        raise ValueError(f"모르는 모델: {model_id}")
+    name = model_id.split("/", 1)[1]
+
+    if p.get("kind") == "agy":
+        # CLI 는 파일 경로로 받는다. 이미 저장된 그림을 그대로 가리킨다.
+        fn = save_image(blob)
+        run_dir = DATA / "agy-run"
+        run_dir.mkdir(exist_ok=True)
+        r = subprocess.run(
+            [AGY, "-p", NAME_PROMPT + "\n\n@" + str(IMAGES / fn),
+             "--model", name, "--output-format", "text",
+             "--dangerously-skip-permissions"],
+            capture_output=True, text=True, timeout=180, cwd=str(run_dir))
+        return _clean_name(r.stdout if r.returncode == 0 else "")
+
+    # OpenAI 호환: data URL 로 실어 보낸다
+    b64 = base64.b64encode(blob).decode()
+    msgs = [{"role": "user", "content": [
+        {"type": "text", "text": NAME_PROMPT},
+        {"type": "image_url",
+         "image_url": {"url": f"data:{mime};base64,{b64}"}}]}]
+    body = {"model": name, "messages": msgs, "stream": False, "max_tokens": 60}
+    headers = {"Content-Type": "application/json"}
+    key = _pkey(p)
+    if key:
+        headers["Authorization"] = "Bearer " + key
+    req = urllib.request.Request(
+        p["url"] + "/chat/completions",
+        json.dumps(body, ensure_ascii=False).encode(), headers)
+    with urllib.request.urlopen(req, timeout=180) as r:
+        d = json.loads(r.read())
+    return _clean_name(d["choices"][0]["message"]["content"])
+
+
+def _clean_name(text):
+    """모델이 설명이나 따옴표를 붙여 오는 걸 잘라낸다."""
+    t = (text or "").strip().splitlines()
+    t = t[-1].strip() if t else ""
+    t = re.sub(r'^["\'\u201c\u2018]|["\'\u201d\u2019.]$', "", t.strip())
+    return t[:20].strip()
+
+
 EVENT_PROMPT = (
     "아래는 롤플레이 대화의 한 구간이다. 이 구간에서 '실제로 일어난 일'만 "
     "한국어 개조식 3~6줄로 적어라. 사건, 장소·시간 이동, 인물이 알게 된 사실, "
@@ -1109,6 +1166,23 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"error": f"저장하지 못했어요: {e}"}, 500)
             return self._json({"url": "/img/" + name})
         data = json.loads(self.rfile.read(n) or b"{}")
+        if self.path == "/api/name-image":
+            # 이미 올라간 그림을 모델이 보고 이름을 짓는다. 파일은 다시
+            # 받지 않는다 — url 로 가리키기만 하면 된다.
+            fn = os.path.basename(str(data.get("url") or ""))
+            f = IMAGES / fn
+            if not fn or not f.exists():
+                return self._json({"error": "그림을 찾지 못했어요"}, 404)
+            try:
+                blob = f.read_bytes()
+                ext = sniff_image(blob)
+                if not ext:
+                    raise ValueError("그림이 아니에요")
+                mime = "image/jpeg" if ext == ".jpg" else "image/" + ext[1:]
+                label = name_image(str(data.get("model") or ""), blob, mime)
+            except Exception as e:
+                return self._json({"error": str(e)[:200]}, 502)
+            return self._json({"label": label})
         if self.path == "/api/recap":
             # 손으로 누르는 요약. mode: full(전체 다시) | append(누적분 추가)
             rhist = data.get("history") or []
@@ -1512,6 +1586,17 @@ def selftest():
     for v in ({}, {"imgOn": True}):
         assert "[이미지]" in build_system(
             dict(ps, images=ist["images"], **v), [], ""), v
+
+    # 이름 짓기: 모델이 설명·따옴표를 붙여 와도 이름만 남아야 한다
+    assert _clean_name("칸나 무표정") == "칸나 무표정"
+    assert _clean_name('"칸나 무표정"') == "칸나 무표정"
+    assert _clean_name("\u201c칸나 무표정\u201d") == "칸나 무표정"
+    assert _clean_name("칸나 무표정.") == "칸나 무표정"
+    # 여러 줄로 답하면 마지막 줄이 답 (앞은 사설)
+    assert _clean_name("이 그림은...\n칸나 무표정") == "칸나 무표정"
+    assert _clean_name("") == "" and _clean_name(None) == ""
+    # 너무 길면 자른다 — 목록 한 줄을 넘기면 안 된다
+    assert len(_clean_name("가" * 50)) == 20
 
     # 길이 지침: max_tokens 를 정하면 말로도 일러준다 (자르기만으로는 안 됨)
     assert len_line(0) == "" and len_line("") == "" and len_line(None) == ""
