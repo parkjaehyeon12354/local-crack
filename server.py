@@ -5,8 +5,10 @@
 자체검사: python3 server.py --selftest
 """
 import base64
+import io
 import json
 import os
+import random
 import re
 import hashlib
 import shutil
@@ -911,6 +913,63 @@ def _clean_name(text):
     return t[:20].strip()
 
 
+# ── NovelAI ──────────────────────────────────────────────────
+# 그림 생성. 크랙빌더 안에서 쓰려고 붙였다 — 만든 그림은 업로드한 것과
+# 같은 자리(data/images)에 같은 방식(내용 해시)으로 저장한다.
+NAI_URL = "https://image.novelai.net/ai/generate-image"
+NAI_KEY = "HERMES_CUSTOM_IMAGE_NOVELAI_NET_API_KEY"
+NAI_UC = ("lowres, artistic error, film grain, scan artifacts, worst quality, "
+          "bad quality, jpeg artifacts, very displeasing, chromatic aberration, "
+          "extra digits, fewer digits, bad anatomy, bad hands, watermark, "
+          "signature, logo, text")
+
+
+def nai_generate(prompt, uc="", seed=0, model="nai-diffusion-4-5-full",
+                 width=1216, height=832, steps=28, scale=7.0):
+    """그림 한 장. 저장된 파일 이름을 돌려준다.
+    응답이 PNG 가 아니라 ZIP 이라는 게 이 API 의 유일한 함정."""
+    key = _env_all().get(NAI_KEY, "")
+    if not key:
+        raise RuntimeError(f"{NAI_KEY} 가 ~/.hermes/.env 에 없어요")
+    uc = uc if uc.strip() else NAI_UC
+    seed = int(seed) or random.randint(1, 2 ** 32 - 1)
+    body = {"input": prompt, "model": model, "action": "generate",
+            "parameters": {
+                "params_version": 3, "width": int(width), "height": int(height),
+                "scale": float(scale), "cfg_rescale": 0.74, "uncond_scale": 0,
+                "sampler": "k_euler_ancestral", "noise_schedule": "karras",
+                "steps": int(steps), "n_samples": 1, "seed": seed,
+                "ucPreset": 0, "qualityToggle": True, "autoSmea": False,
+                "dynamic_thresholding": False, "controlnet_strength": 1,
+                "legacy": False, "add_original_image": True,
+                "legacy_v3_extend": False, "skip_cfg_above_sigma": None,
+                "use_coords": False, "characterPrompts": [],
+                "prefer_brownian": True, "deliberate_euler_ancestral_bug": False,
+                # v4 계열은 아래 두 덩어리가 없으면 프롬프트를 조용히 무시한다
+                "v4_prompt": {"caption": {"base_caption": prompt,
+                                          "char_captions": []},
+                              "use_coords": False, "use_order": True},
+                "v4_negative_prompt": {"caption": {"base_caption": uc,
+                                                   "char_captions": []},
+                                       "legacy_uc": False},
+                "negative_prompt": uc,
+            }}
+    # User-Agent 가 없으면 Cloudflare 가 403 error code: 1010 으로 막는다.
+    # 키가 멀쩡해도 그렇다 — 키 문제로 오해하기 딱 좋은 자리라 적어 둔다.
+    req = urllib.request.Request(
+        NAI_URL, json.dumps(body).encode(),
+        {"Content-Type": "application/json", "Authorization": "Bearer " + key,
+         "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/131.0.0.0 Safari/537.36"),
+         "Accept": "*/*", "Origin": "https://novelai.net",
+         "Referer": "https://novelai.net/"})
+    with urllib.request.urlopen(req, timeout=300) as r:
+        blob = r.read()
+    z = zipfile.ZipFile(io.BytesIO(blob))
+    return save_image(z.read(z.namelist()[0])), seed
+
+
 EVENT_PROMPT = (
     "아래는 롤플레이 대화의 한 구간이다. 이 구간에서 '실제로 일어난 일'만 "
     "한국어 개조식 3~6줄로 적어라. 사건, 장소·시간 이동, 인물이 알게 된 사실, "
@@ -1183,6 +1242,24 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 return self._json({"error": str(e)[:200]}, 502)
             return self._json({"label": label})
+        if self.path == "/api/nai":
+            try:
+                pr = str(data.get("prompt") or "").strip()
+                if not pr:
+                    raise ValueError("프롬프트를 적어 주세요")
+                fn, seed = nai_generate(
+                    pr, str(data.get("uc") or ""), data.get("seed") or 0,
+                    str(data.get("model") or "nai-diffusion-4-5-full"),
+                    data.get("width") or 1216, data.get("height") or 832,
+                    data.get("steps") or 28, data.get("scale") or 7.0)
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+            except urllib.error.HTTPError as e:
+                detail = e.read()[:300].decode("utf-8", "replace")
+                return self._json({"error": _why(e.code, detail, NAI_KEY)}, 502)
+            except Exception as e:
+                return self._json({"error": f"{type(e).__name__}: {e}"[:200]}, 502)
+            return self._json({"url": "/img/" + fn, "seed": seed})
         if self.path == "/api/recap":
             # 손으로 누르는 요약. mode: full(전체 다시) | append(누적분 추가)
             rhist = data.get("history") or []
