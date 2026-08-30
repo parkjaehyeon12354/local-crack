@@ -207,6 +207,13 @@ button{font-family:inherit;}
 .msg{margin:20px 0;word-break:break-word;}
 .msg.assistant p{font-size:15px;line-height:1.75;margin:0 0 12px;color:#e8e8e8;}
 .msg.assistant p:last-child{margin-bottom:0;}
+.think{margin:0 0 12px;}
+.think-head{font-size:12px;color:#7a7a7a;cursor:pointer;list-style:none;user-select:none;}
+.think-head::-webkit-details-marker{display:none;}
+.think-head:hover{color:#9a9a9a;}
+.think-head.bare{cursor:default;margin:0 0 12px;}
+.think[open] .think-head{color:#9a9a9a;margin-bottom:6px;}
+.think-body{white-space:pre-wrap;font-size:13px;line-height:1.7;color:#8a8a8a;background:#141414;border-left:2px solid #2e2e2e;border-radius:0 8px 8px 0;padding:10px 12px;}
 .msg-img{display:block;max-width:min(100%,420px);border-radius:12px;margin:0 0 12px;}
 .msg-img-miss{display:inline-block;padding:10px 14px;margin:0 0 12px;border:1px dashed #3a3a3a;border-radius:10px;color:#777;font-size:13px;background:#161616;}
 .msg.assistant.error p{color:#ff6b5e;}
@@ -322,6 +329,7 @@ button{font-family:inherit;}
   <button class="dr-i" data-open="memory"><span class="dr-ic">🧠</span>장기 기억<span class="dr-v" id="drMem"></span></button>
   <button class="dr-i" data-open="chronicle"><span class="dr-ic">📜</span>사건 기록<span class="dr-v" id="drChron"></span></button>
   <button class="dr-i" id="drImgBtn"><span class="dr-ic">🖼</span>이미지<span class="dr-v" id="drImg"></span></button>
+  <button class="dr-i" data-open="gen"><span class="dr-ic">⚙</span>출력·추론<span class="dr-v" id="drGen"></span></button>
   <div class="dr-h">시작 설정</div>
   <div class="dr-flat" id="drStart">기본 설정</div>
 </aside>
@@ -665,6 +673,11 @@ function renderDrawer(){
   document.getElementById('drImgBtn').style.display = (has && storyOn) ? '' : 'none';
   iv.textContent = imgOff ? '꺼짐' : '켜짐 · ' + has + '장';
   iv.classList.toggle('on', !imgOff);
+  const mt = +(localStorage.getItem('crack.maxTokens') || 0);
+  const ef = localStorage.getItem('crack.effort') || '';
+  const gv = document.getElementById('drGen');
+  gv.textContent = (mt ? mt : '제한없음') + ' · ' + (EFFORT_KO[ef] || '기본');
+  gv.classList.toggle('on', !!(mt || ef));
   const st = currentStory && currentStory.starts && currentStory.starts[0];
   document.getElementById('drStart').textContent = (st && st.name) || '기본 설정';
 }
@@ -695,7 +708,33 @@ drawer.addEventListener('click', e => {
   else if (what === 'note') openNote();
   else if (what === 'memory') openMemory();
   else if (what === 'chronicle') openChronicle();
+  else if (what === 'gen') openGen();
 });
+
+const EFFORT_KO = {low:'낮음', medium:'보통', high:'높음'};
+
+/* 출력 길이·추론 강도 — 모델을 바꿔가며 만지는 값이라 설정이 아니라 여기 둔다. */
+function openGen(){
+  document.getElementById('pmTitle').textContent = '출력 · 추론';
+  const opt = (v, t, cur) => '<option value="' + v + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + t + '</option>';
+  const mt = localStorage.getItem('crack.maxTokens') || '0';
+  const ef = localStorage.getItem('crack.effort') || '';
+  document.getElementById('pmBody').innerHTML =
+    '<div class="fld-l">최대 출력 길이</div>' +
+    '<select id="gMax">' +
+      [[0,'제한없음 (모델 기본값)'],[1024,'1024 토큰'],[2048,'2048 토큰'],[4096,'4096 토큰'],[8192,'8192 토큰']]
+        .map(([v,t]) => opt(v, t, mt)).join('') + '</select>' +
+    '<div class="fld-d">사고하는 모델은 값을 정해두면 답이 비어 나올 수 있어요.</div>' +
+    '<div class="fld-l">추론 강도</div>' +
+    '<select id="gEff">' +
+      [['','모델 기본값'],['low','낮음 — 빠르고 싸게'],['medium','보통'],['high','높음 — 느리지만 꼼꼼히']]
+        .map(([v,t]) => opt(v, t, ef)).join('') + '</select>' +
+    '<div class="fld-d">지원하지 않는 모델에서는 자동으로 빼고 보냅니다.</div>';
+  document.getElementById('pmFoot').innerHTML = '';
+  document.getElementById('gMax').onchange = e => { localStorage.setItem('crack.maxTokens', e.target.value); renderDrawer(); };
+  document.getElementById('gEff').onchange = e => { localStorage.setItem('crack.effort', e.target.value); renderDrawer(); };
+  pmask.classList.add('open');
+}
 
 // 줄거리가 프롬프트를 잡아먹기 시작하면 알린다 — 모르고 계속 쌓는 게 제일 나쁘다
 function renderWarn(){
@@ -1048,7 +1087,8 @@ async function openChat(id){
   log = (Array.isArray(data.log) ? data.log : []).map(m => ({
     role: m.role === 'user' ? 'user' : 'assistant',
     content: String(m.content || ''),
-    fired: Array.isArray(m.fired) ? m.fired : []
+    fired: Array.isArray(m.fired) ? m.fired : [],
+    think: (m.think && typeof m.think === 'object') ? m.think : null
   }));
   renderMessages();
   renderChats();
@@ -1123,6 +1163,31 @@ function missingImg(text){
   return d;
 }
 
+// 추론 내용은 기본으로 접어 둔다 — 펼치면 모델이 뭘 재고 있었는지 보인다.
+// 시간은 항상 보인다: 느릴 때 강도 탓인지 알아야 하니까.
+function thinkBox(t){
+  const bits = [];
+  if (t.seconds) bits.push(t.seconds + '초');
+  if (t.reasoning_tokens) bits.push(t.reasoning_tokens + ' 토큰');
+  const head = '💭 추론' + (bits.length ? ' · ' + bits.join(' · ') : '');
+  if (!t.reasoning){
+    const d = document.createElement('div');
+    d.className = 'think-head bare';
+    d.textContent = head;
+    return d;
+  }
+  const box = document.createElement('details');
+  box.className = 'think';
+  const sum = document.createElement('summary');
+  sum.className = 'think-head';
+  sum.textContent = head;
+  const body = document.createElement('div');
+  body.className = 'think-body';
+  body.textContent = t.reasoning;      // 모델 출력이라 textContent 만 쓴다
+  box.appendChild(sum); box.appendChild(body);
+  return box;
+}
+
 function renderMessages(){
   msgsEl.innerHTML = '';
   const lastEntry = log[log.length - 1];
@@ -1137,6 +1202,7 @@ function renderMessages(){
       div.appendChild(b);
     } else {
       div.className = 'msg assistant' + (m.error ? ' error' : '');
+      if (m.think) div.appendChild(thinkBox(m.think));
       String(m.content).split('\n').forEach(p => {
         if (!p.trim()) return;
         appendLine(div, p);
@@ -1227,7 +1293,8 @@ async function callChat(message){
     if (typeof data.logged_turns === 'number') loggedTurns = data.logged_turns;
     renderNoteTag();   // 요약이 갱신되면 서랍의 '장기 기억' 글자수가 바뀐다
     renderWarn();
-    log.push({role:'assistant', content:String(data.reply || ''), fired:Array.isArray(data.fired) ? data.fired : []});
+    log.push({role:'assistant', content:String(data.reply || ''), fired:Array.isArray(data.fired) ? data.fired : [],
+              think:(data.think && (data.think.reasoning || data.think.seconds)) ? data.think : null});
     await saveChat();
   }catch(err){
     log.push({role:'assistant', content:'[오류] ' + (err && err.message ? err.message : String(err)), error:true, fired:[]});
@@ -1256,7 +1323,7 @@ async function saveChat(){
         img_off: imgOff,
         persona_id: personaId,
         model: currentModel ? currentModel.pid + '/' + currentModel.mid : null,
-        log: log.filter(m => !m.error).map(m => ({role:m.role, content:m.content, fired:m.fired || []}))
+        log: log.filter(m => !m.error).map(m => ({role:m.role, content:m.content, fired:m.fired || [], think:m.think || null}))
       })
     });
     if (res.ok){

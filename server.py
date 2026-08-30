@@ -723,10 +723,12 @@ def agy_effort(name, effort):
     return ["--effort", effort]
 
 
-def chat(model_id, system, history, user_input, max_tokens=0, effort=""):
+def chat(model_id, system, history, user_input, max_tokens=0, effort="",
+         meta=None):
     """한 턴 생성. model_id 는 "제공사/모델" 형식. 실패는 예외로 올린다.
     max_tokens 0 = 안 보냄(모델 기본값). 사고 토큰이 예산을 먼저 먹어
-    빈 응답이 나는 걸 피하려면 굳이 보내지 않는 쪽이 안전하다."""
+    빈 응답이 나는 걸 피하려면 굳이 보내지 않는 쪽이 안전하다.
+    meta 를 dict 로 주면 추론 내용·토큰 수를 거기에 채워 준다."""
     p = _by_model.get(model_id)
     if not p:
         raise ValueError(f"모르는 모델: {model_id}")
@@ -787,6 +789,19 @@ def chat(model_id, system, history, user_input, max_tokens=0, effort=""):
         with urllib.request.urlopen(req, timeout=300) as r:
             return json.loads(r.read())
 
+    def take(d):
+        m = d["choices"][0]["message"]
+        if meta is not None:
+            # 제공사마다 이름이 다르다. 있는 것만 주워 담는다.
+            think = m.get("reasoning_content") or m.get("reasoning") or ""
+            if think:
+                meta["reasoning"] = str(think)
+            tok = (d.get("usage", {}).get("completion_tokens_details", {})
+                   .get("reasoning_tokens"))
+            if tok:
+                meta["reasoning_tokens"] = tok
+        return m["content"]
+
     try:
         d = send(body)
     except urllib.error.HTTPError as e:
@@ -799,7 +814,7 @@ def chat(model_id, system, history, user_input, max_tokens=0, effort=""):
             raise RuntimeError(_why(e.code, detail, p.get("key_env")))
         body.pop("reasoning_effort")
         d = send(body)
-    return d["choices"][0]["message"]["content"]
+    return take(d)
 
 
 EVENT_PROMPT = (
@@ -1163,8 +1178,11 @@ class Handler(SimpleHTTPRequestHandler):
                      active_notes(story.get("notes", []), hist, msg,
                                   start_name=story_start(story).get("name"))]
             try:
+                think = {}
+                t0 = time.time()
                 reply = chat(m, system, hist, msg, max_tokens,
-                             effort=str(data.get("effort") or ""))
+                             effort=str(data.get("effort") or ""), meta=think)
+                think["seconds"] = round(time.time() - t0, 1)
             except Exception as e:
                 return self._json({"error": str(e)[:400]}, 502)
             return self._json({"reply": reply, "fired": fired,
@@ -1173,6 +1191,7 @@ class Handler(SimpleHTTPRequestHandler):
                                "wrote_events": wrote_events,
                                "too_long": len(chronicle) > CHRONICLE_WARN,
                                "warn_at": CHRONICLE_WARN,
+                               "think": think,
                                "system_chars": len(system)})
         return self._json({"error": "없음"}, 404)
 
@@ -1515,6 +1534,24 @@ def selftest():
         assert chat("_t/_m", "s", [], "hi", effort="high") == "요약 결과"
         assert len(_calls) == 2, _calls
         assert "reasoning_effort" in _calls[0] and "reasoning_effort" not in _calls[1]
+
+        # 추론 내용·토큰은 meta 에 담기고, 없으면 아무것도 넣지 않는다
+        def _think(req, timeout=0):
+            return _Resp({"choices": [{"message": {
+                "content": "답", "reasoning_content": "속으로 계산함"}}],
+                "usage": {"completion_tokens_details": {"reasoning_tokens": 86}}})
+        urllib.request.urlopen = _think
+        meta = {}
+        assert chat("_t/_m", "s", [], "hi", meta=meta) == "답"
+        assert meta["reasoning"] == "속으로 계산함", meta
+        assert meta["reasoning_tokens"] == 86, meta
+        # 추론을 안 주는 모델이면 키 자체가 없어야 한다 (0초·0토큰으로 보이면 안 됨)
+        urllib.request.urlopen = _fake
+        meta2 = {}
+        assert chat("_t/_m", "s", [], "hi", meta=meta2) == "요약 결과"
+        assert meta2 == {}, meta2
+        # meta 를 안 줘도 터지지 않는다
+        assert chat("_t/_m", "s", [], "hi") == "요약 결과"
 
         # 강도와 무관한 오류는 재시도하지 않는다 — 키가 틀렸는데 두 번 보내면 안 된다
         _calls.clear()
