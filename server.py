@@ -260,8 +260,26 @@ def relevant_chronicle(chronicle, history, user_input, top=3,
     return "\n\n".join(b for _, _, b in picked)
 
 
+def len_line(max_tokens):
+    """길이 지침 한 줄. max_tokens 는 넘치면 자를 뿐이라 모델이 스스로
+    맞추게 하려면 말로도 일러줘야 한다. 문장 중간에 잘리는 걸 막는 목적."""
+    try:
+        n = int(max_tokens or 0)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    # 한국어는 대략 토큰당 1.5자. 상한만 말하면 모델이 항상 짧게 끝내
+    # 1000 이든 3000 이든 비슷해진다. 목표 분량을 범위로 준다.
+    ch = int(n * 1.5 / 100) * 100
+    return (f"[길이] 답을 {int(ch * 0.8 / 100) * 100}~{ch}자로 쓴다. "
+            f"{ch}자를 넘기지 않되 그만큼은 채운다. "
+            "분량 안에서 장면을 매듭짓는다.")
+
+
 def build_system(story, history=None, user_input="", persona="", usernote="",
-                 memory="", chronicle="", chron_all=False, img_off=False):
+                 memory="", chronicle="", chron_all=False, img_off=False,
+                 max_tokens=0):
     """매 턴 호출. system 프롬프트 문자열을 만든다.
     순서: 프롬프트 → 가이드 → 사건 기록 → 장기 기억 → 프로필 → 유저 노트
           → 발동한 노트.
@@ -300,6 +318,10 @@ def build_system(story, history=None, user_input="", persona="", usernote="",
     for n in active_notes(story.get("notes", []), history or [], user_input,
                           start_name=start.get("name")):
         parts.append(f"[{n.get('title','')}]\n{n.get('info','')}".strip())
+    # 길이 지침은 맨 뒤 — 앞의 규칙들보다 나중에 읽혀야 덜 잊는다
+    ln = len_line(max_tokens)
+    if ln:
+        parts.append(ln)
     # 치환은 마지막에 한 번 — 프롬프트·가이드·프로필·노트 전부 같은 규칙을 탄다
     return subst("\n\n".join(p for p in parts if p), story, persona)
 
@@ -1167,7 +1189,7 @@ class Handler(SimpleHTTPRequestHandler):
 
             system = build_system(story, hist, msg, persona, usernote, memory,
                                   chronicle, bool(data.get("chron_all")),
-                                  bool(data.get("img_off")))
+                                  bool(data.get("img_off")), max_tokens)
             # 사용자가 친 말 안의 {user}/{char} 도 같이 치환한다.
             # {img::N} 은 이름으로 풀어 보낸다 — 번호만 보면 뭘 골랐는지 모른다.
             msg = img_to_label(subst(msg, story, persona), story)
@@ -1475,6 +1497,21 @@ def selftest():
     for v in ({}, {"imgOn": True}):
         assert "[이미지]" in build_system(
             dict(ps, images=ist["images"], **v), [], ""), v
+
+    # 길이 지침: max_tokens 를 정하면 말로도 일러준다 (자르기만으로는 안 됨)
+    assert len_line(0) == "" and len_line("") == "" and len_line(None) == ""
+    assert len_line("이상한값") == "" and len_line(-5) == ""
+    l1000 = len_line(1000)
+    # 상한만 주면 모델이 늘 짧게 끝낸다 — 목표 범위를 줘야 값에 따라 달라진다
+    assert "1200~1500자" in l1000, l1000
+    assert len_line("1500") == len_line(1500)          # 문자열로 와도 같다
+    assert "3600~4500자" in len_line(3000), len_line(3000)
+    assert "1700~2200자" in len_line(1500), len_line(1500)
+    # 프롬프트 맨 뒤에 붙고, 안 정하면 아예 안 들어간다
+    lg = build_system(ps, [], "", max_tokens=1000)
+    assert lg.endswith(l1000), lg[-120:]
+    assert "[길이]" not in build_system(ps, [], "")
+    assert "[길이]" not in build_system(ps, [], "", max_tokens=0)
 
     # 서브모델: 고른 게 있으면 그것, 없거나 이상하면 본편 모델로 떨어진다
     assert sub_model({}, "main/m") == ("main/m", "")
