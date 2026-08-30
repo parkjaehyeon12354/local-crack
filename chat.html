@@ -1171,16 +1171,22 @@ function missingImg(text){
 }
 
 // 추론 내용은 기본으로 접어 둔다 — 펼치면 모델이 뭘 재고 있었는지 보인다.
-// 시간은 항상 보인다: 느릴 때 강도 탓인지 알아야 하니까.
+// 시간·토큰은 항상 보인다: 느릴 때 강도 탓인지, 길이가 얼마나 나왔는지 알아야 한다.
 function thinkBox(t){
   const bits = [];
   if (t.seconds) bits.push(t.seconds + '초');
-  if (t.reasoning_tokens) bits.push(t.reasoning_tokens + ' 토큰');
-  const head = '💭 추론' + (bits.length ? ' · ' + bits.join(' · ') : '');
+  if (t.out_tokens) bits.push((t.approx ? '~' : '') + t.out_tokens + ' 토큰');
+  if (t.reasoning_tokens) bits.push('추론 ' + t.reasoning_tokens);
+  const head = '💭 ' + (bits.length ? bits.join(' · ') : '추론');
+  const tip = [t.in_tokens ? '보낸 프롬프트 ' + t.in_tokens + ' 토큰' : '',
+               t.total_tokens ? '합계 ' + t.total_tokens + ' 토큰' : '',
+               t.approx ? '이 제공사는 사용량을 안 줘서 어림값입니다' : '']
+              .filter(Boolean).join('\n');
   if (!t.reasoning){
     const d = document.createElement('div');
     d.className = 'think-head bare';
     d.textContent = head;
+    if (tip) d.title = tip;
     return d;
   }
   const box = document.createElement('details');
@@ -1188,6 +1194,7 @@ function thinkBox(t){
   const sum = document.createElement('summary');
   sum.className = 'think-head';
   sum.textContent = head;
+  if (tip) sum.title = tip;
   const body = document.createElement('div');
   body.className = 'think-body';
   body.textContent = t.reasoning;      // 모델 출력이라 textContent 만 쓴다
@@ -1301,7 +1308,7 @@ async function callChat(message){
     renderNoteTag();   // 요약이 갱신되면 서랍의 '장기 기억' 글자수가 바뀐다
     renderWarn();
     log.push({role:'assistant', content:String(data.reply || ''), fired:Array.isArray(data.fired) ? data.fired : [],
-              think:(data.think && (data.think.reasoning || data.think.seconds)) ? data.think : null});
+              think:(data.think && Object.keys(data.think).length) ? data.think : null});
     await saveChat();
   }catch(err){
     log.push({role:'assistant', content:'[오류] ' + (err && err.message ? err.message : String(err)), error:true, fired:[]});

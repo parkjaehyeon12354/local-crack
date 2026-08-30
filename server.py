@@ -270,11 +270,11 @@ def len_line(max_tokens):
     if n <= 0:
         return ""
     # 한국어는 대략 토큰당 1.5자. 상한만 말하면 모델이 항상 짧게 끝내
-    # 1000 이든 3000 이든 비슷해진다. 목표 분량을 범위로 준다.
+    # 1000 이든 3000 이든 비슷해진다. 그래서 목표 분량을 준다.
+    # 숫자를 두 번 쓰면(범위) 모델이 글자를 세다가 본문에 "1200자" 같은
+    # 말을 흘린다 — 실제로 겪었다. 목표 하나만 말하고 끝낸다.
     ch = int(n * 1.5 / 100) * 100
-    return (f"[길이] 답을 {int(ch * 0.8 / 100) * 100}~{ch}자로 쓴다. "
-            f"{ch}자를 넘기지 않되 그만큼은 채운다. "
-            "분량 안에서 장면을 매듭짓는다.")
+    return f"[길이] 이번 답은 한국어 {ch}자 분량으로 쓴다."
 
 
 def build_system(story, history=None, user_input="", persona="", usernote="",
@@ -760,6 +760,15 @@ def chat(model_id, system, history, user_input, max_tokens=0, effort="",
             [{"role": m["role"], "content": m["content"]} for m in history] +
             [{"role": "user", "content": user_input}])
 
+    def cli_meta(text):
+        """CLI 는 usage 를 안 준다. 표시용으로만 어림잡는다.
+        ponytail: 글자수/2.2 근사. 정확한 값이 필요해지면 제공사별
+        토크나이저를 붙여야 하는데 표시 하나에 그럴 값은 아니다."""
+        if meta is not None and text:
+            meta["out_tokens"] = max(1, round(len(text) / 2.2))
+            meta["approx"] = True
+        return text
+
     if p.get("kind") == "claude":
         # Claude Code CLI. -p 는 대화형 다이얼로그를 전부 건너뛴다.
         convo = "\n\n".join(f"{m['role']}: {m['content']}" for m in msgs[1:])
@@ -769,7 +778,7 @@ def chat(model_id, system, history, user_input, max_tokens=0, effort="",
             capture_output=True, text=True, timeout=300)
         if r.returncode != 0:
             raise RuntimeError((r.stderr or r.stdout)[:300])
-        return r.stdout.strip()
+        return cli_meta(r.stdout.strip())
 
     if p.get("kind") == "agy":
         # Antigravity CLI. --append-system-prompt 가 없어 system 을 본문 앞에 붙인다.
@@ -792,7 +801,7 @@ def chat(model_id, system, history, user_input, max_tokens=0, effort="",
         out = (r.stdout or "").strip()
         if r.returncode != 0 or not out:
             raise RuntimeError(((r.stderr or out) or "빈 응답")[:300])
-        return out
+        return cli_meta(out)
 
     body = {"model": name, "messages": msgs, "stream": False}
     if max_tokens:
@@ -818,10 +827,16 @@ def chat(model_id, system, history, user_input, max_tokens=0, effort="",
             think = m.get("reasoning_content") or m.get("reasoning") or ""
             if think:
                 meta["reasoning"] = str(think)
-            tok = (d.get("usage", {}).get("completion_tokens_details", {})
-                   .get("reasoning_tokens"))
+            u = d.get("usage") or {}
+            tok = (u.get("completion_tokens_details") or {}).get("reasoning_tokens")
             if tok:
                 meta["reasoning_tokens"] = tok
+            # 실제 사용량. 추정하지 않는다 — 제공사가 세어서 준다.
+            for src, dst in (("prompt_tokens", "in_tokens"),
+                             ("completion_tokens", "out_tokens"),
+                             ("total_tokens", "total_tokens")):
+                if u.get(src):
+                    meta[dst] = u[src]
         return m["content"]
 
     try:
@@ -1502,11 +1517,13 @@ def selftest():
     assert len_line(0) == "" and len_line("") == "" and len_line(None) == ""
     assert len_line("이상한값") == "" and len_line(-5) == ""
     l1000 = len_line(1000)
-    # 상한만 주면 모델이 늘 짧게 끝낸다 — 목표 범위를 줘야 값에 따라 달라진다
-    assert "1200~1500자" in l1000, l1000
+    # 상한만 주면 모델이 늘 짧게 끝낸다 — 목표 분량을 줘야 값에 따라 달라진다
+    assert "1500자" in l1000, l1000
     assert len_line("1500") == len_line(1500)          # 문자열로 와도 같다
-    assert "3600~4500자" in len_line(3000), len_line(3000)
-    assert "1700~2200자" in len_line(1500), len_line(1500)
+    assert "4500자" in len_line(3000), len_line(3000)
+    # 숫자가 한 번만 나와야 한다 — 두 번 쓰면 모델이 본문에 글자 수를 흘린다
+    import re as _re
+    assert len(_re.findall(r"\d+자", l1000)) == 1, l1000
     # 프롬프트 맨 뒤에 붙고, 안 정하면 아예 안 들어간다
     lg = build_system(ps, [], "", max_tokens=1000)
     assert lg.endswith(l1000), lg[-120:]
@@ -1576,12 +1593,17 @@ def selftest():
         def _think(req, timeout=0):
             return _Resp({"choices": [{"message": {
                 "content": "답", "reasoning_content": "속으로 계산함"}}],
-                "usage": {"completion_tokens_details": {"reasoning_tokens": 86}}})
+                "usage": {"prompt_tokens": 654, "completion_tokens": 150,
+                          "total_tokens": 804,
+                          "completion_tokens_details": {"reasoning_tokens": 86}}})
         urllib.request.urlopen = _think
         meta = {}
         assert chat("_t/_m", "s", [], "hi", meta=meta) == "답"
         assert meta["reasoning"] == "속으로 계산함", meta
         assert meta["reasoning_tokens"] == 86, meta
+        # 실제 사용량은 제공사가 준 숫자 그대로 (추정 아님)
+        assert meta["in_tokens"] == 654 and meta["out_tokens"] == 150, meta
+        assert meta["total_tokens"] == 804 and "approx" not in meta, meta
         # 추론을 안 주는 모델이면 키 자체가 없어야 한다 (0초·0토큰으로 보이면 안 됨)
         urllib.request.urlopen = _fake
         meta2 = {}
