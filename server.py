@@ -12,6 +12,7 @@ import random
 import re
 import hashlib
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -922,6 +923,23 @@ NAI_UC = ("lowres, artistic error, film grain, scan artifacts, worst quality, "
           "bad quality, jpeg artifacts, very displeasing, chromatic aberration, "
           "extra digits, fewer digits, bad anatomy, bad hands, watermark, "
           "signature, logo, text")
+
+
+PORT = 8787
+
+
+def lan_ips():
+    """이 PC 가 공유기에서 쓰는 주소들. 폰에 쳐 넣을 것을 보여주려고 쓴다.
+    hostname 으로 찾으면 127.0.0.1 만 나오는 경우가 많아 UDP 소켓을 쓴다."""
+    out = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))          # 실제로 보내지는 않는다
+        out.append(s.getsockname()[0])
+        s.close()
+    except Exception:
+        pass
+    return [ip for ip in out if not ip.startswith("127.")]
 
 
 NAI_FILE = DATA / "novelai.json"      # 페이지에서 넣은 키. .env 가 없을 때만 쓴다
@@ -2019,6 +2037,13 @@ if __name__ == "__main__":
         if not _catalog:
             print("  ★ 쓸 수 있는 모델이 없다. ~/.hermes/.env 에 키를 넣거나"
                   " ollama 를 켜라")
-        print("→ http://127.0.0.1:8787")
+        # --lan 을 주면 같은 공유기 안의 다른 기기(폰)에서도 열린다.
+        # 기본은 이 PC 안에서만 — 키가 평문으로 앉아 있는 도구라
+        # 실수로 열려 있는 쪽이 기본값이면 안 된다.
+        host = "0.0.0.0" if "--lan" in sys.argv else "127.0.0.1"
+        print(f"→ http://127.0.0.1:{PORT}")
+        if host == "0.0.0.0":
+            for ip in lan_ips():
+                print(f"→ http://{ip}:{PORT}   (같은 와이파이의 폰에서)")
         # 브라우저 keep-alive 연결 하나가 서버 전체를 막는다 → 스레드 서버
-        ThreadingHTTPServer(("127.0.0.1", 8787), Handler).serve_forever()
+        ThreadingHTTPServer((host, PORT), Handler).serve_forever()

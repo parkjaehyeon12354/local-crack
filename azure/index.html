@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이미지 — 크랙</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  background:#0d0d0d;color:#e8e8e8;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+button{font-family:inherit;cursor:pointer;}
+::-webkit-scrollbar{width:10px;}
+::-webkit-scrollbar-thumb{background:#2b2b2b;border-radius:6px;border:2px solid #0d0d0d;}
+::-webkit-scrollbar-track{background:transparent;}
+
+#gbar{height:40px;flex:none;display:flex;align-items:center;padding:0 14px;}
+.gnav{display:flex;gap:16px;}
+.gnav a{color:#8a8a8a;font-size:13px;text-decoration:none;}
+.gnav a:hover{color:#d0d0d0;}
+.gnav a.on{color:#e8e8e8;font-weight:600;}
+
+#scroll{flex:1;overflow-y:auto;}
+.page{max-width:1100px;margin:0 auto;padding:28px 20px 60px;}
+.head{display:flex;align-items:baseline;gap:12px;margin-bottom:22px;}
+.head h1{font-size:26px;letter-spacing:-.5px;}
+.head .note{color:#7a7a7a;font-size:12px;}
+
+.wrap{display:grid;grid-template-columns:380px 1fr;gap:22px;align-items:start;}
+@media(max-width:900px){.wrap{grid-template-columns:1fr;}.page{padding:18px 14px 50px;}.stage{min-height:280px;}}
+
+.fld{margin-bottom:14px;}
+.fld label{display:block;font-size:13px;color:#c8c8c8;margin-bottom:6px;}
+.fld .hint{color:#6e6e6e;font-size:11px;margin-top:5px;line-height:1.5;}
+textarea,input,select{
+  width:100%;background:#141414;border:1px solid #2a2a2a;border-radius:9px;
+  padding:10px 11px;color:#eee;font-size:13px;font-family:inherit;resize:vertical;}
+textarea:focus,input:focus,select:focus{outline:none;border-color:#f5442e;}
+textarea{line-height:1.6;}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+.adv{border:1px solid #222;border-radius:10px;padding:0 12px;margin-bottom:14px;}
+.adv summary{cursor:pointer;padding:11px 0;font-size:13px;color:#a8a8a8;list-style:none;}
+.adv summary::-webkit-details-marker{display:none;}
+.adv summary::before{content:'▸ ';color:#666;}
+.adv[open] summary::before{content:'▾ ';}
+.adv .body{padding-bottom:6px;}
+
+.go{width:100%;background:#f5442e;border:0;color:#fff;border-radius:9px;
+  padding:13px;font-size:14px;font-weight:700;}
+.go:hover{background:#ff5741;}
+.go:disabled{background:#3a2320;color:#8a6a64;cursor:default;}
+.st{text-align:center;color:#8a8a8a;font-size:12px;margin-top:9px;min-height:17px;}
+
+.stage{background:#111;border:1px solid #222;border-radius:12px;min-height:460px;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.stage img{max-width:100%;max-height:74vh;display:block;}
+.stage .ph{color:#4a4a4a;font-size:13px;}
+.bar{display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap;}
+.bar button{background:#171717;border:1px solid #2c2c2c;color:#ddd;border-radius:8px;
+  padding:8px 13px;font-size:12px;}
+.bar button:hover{border-color:#f5442e;color:#f5442e;}
+.bar .seed{color:#6e6e6e;font-size:11px;margin-left:auto;font-family:ui-monospace,monospace;}
+
+.roll{display:flex;gap:8px;margin-top:16px;overflow-x:auto;padding-bottom:6px;}
+.roll img{width:78px;height:78px;object-fit:cover;border-radius:8px;flex:none;
+  border:2px solid transparent;cursor:pointer;}
+.roll img.on{border-color:#f5442e;}
+</style>
+</head>
+<body>
+
+<header id="gbar">
+  <nav class="gnav">
+    <a class="on" href="/">이미지</a>
+  </nav>
+</header>
+
+<div id="scroll"><div class="page">
+  <div class="head">
+    <h1>이미지</h1>
+    <span class="note">NovelAI 로 그립니다. 폰에서도 됩니다.</span>
+  </div>
+
+  <div class="wrap">
+    <div>
+      <div class="fld">
+        <label>프롬프트</label>
+        <textarea id="p" rows="6" placeholder="1girl, black hair, rain, alley, night"></textarea>
+        <div class="hint">태그를 쉼표로 나열해요. 가중치는 <code>1.2::tag ::</code> 형식 그대로 씁니다.</div>
+      </div>
+
+      <details class="adv"><summary>세부 설정</summary><div class="body">
+        <div class="fld">
+          <label>빼고 싶은 것 (네거티브)</label>
+          <textarea id="uc" rows="3" placeholder="비우면 기본값을 씁니다"></textarea>
+        </div>
+        <div class="fld">
+          <label>모델</label>
+          <select id="model">
+            <option value="nai-diffusion-4-5-full">NAI Diffusion 4.5 Full</option>
+            <option value="nai-diffusion-4-5-curated">NAI Diffusion 4.5 Curated</option>
+            <option value="nai-diffusion-4-full">NAI Diffusion 4 Full</option>
+            <option value="nai-diffusion-3">NAI Diffusion 3</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label>크기</label>
+          <select id="size">
+            <option value="1216x832">가로 1216 x 832</option>
+            <option value="832x1216">세로 832 x 1216</option>
+            <option value="1024x1024">정사각 1024 x 1024</option>
+            <option value="1088x896">가로(약간) 1088 x 896</option>
+          </select>
+        </div>
+        <div class="two">
+          <div class="fld"><label>스텝</label><input id="steps" type="number" value="28" min="1" max="50"></div>
+          <div class="fld"><label>프롬프트 반영</label><input id="scale" type="number" value="7" min="1" max="10" step="0.5"></div>
+        </div>
+        <div class="fld">
+          <label>시드</label>
+          <input id="seed" type="number" placeholder="비우면 무작위">
+          <div class="hint">같은 시드 + 같은 프롬프트 = 같은 그림. 조금씩 고쳐 볼 때 고정하세요.</div>
+        </div>
+      </div></details>
+
+      <button class="go" id="go">그리기</button>
+      <div class="st" id="st"></div>
+    </div>
+
+    <div>
+      <div class="stage" id="stage"><span class="ph">아직 그린 게 없어요</span></div>
+      <div class="bar" id="bar" hidden>
+        <button id="dl">내려받기</button>
+        <button id="again">같은 설정으로 또</button>
+        <button id="useseed">이 시드 고정</button>
+        <span class="seed" id="sd"></span>
+      </div>
+      <div class="roll" id="roll"></div>
+    </div>
+  </div>
+</div></div>
+
+<script>
+'use strict';
+const API = 'https://func-crack-8098496.azurewebsites.net';   // Azure Functions
+const $ = id => document.getElementById(id);
+const KEY = 'crack.nai';           // 마지막 설정 (프롬프트는 날리기 아까움)
+const HIST = 'crack.naiHist';      // 만든 그림 목록
+
+let made = JSON.parse(localStorage.getItem(HIST) || '[]');
+let cur = null;
+
+// 설정 복원 — 새로고침해도 프롬프트가 살아 있어야 한다
+try {
+  const s = JSON.parse(localStorage.getItem(KEY) || '{}');
+  for (const k of ['p', 'uc', 'model', 'size', 'steps', 'scale', 'seed'])
+    if (s[k] !== undefined && $(k)) $(k).value = s[k];
+} catch (e) {}
+function save() {
+  const s = {};
+  for (const k of ['p', 'uc', 'model', 'size', 'steps', 'scale', 'seed']) s[k] = $(k).value;
+  localStorage.setItem(KEY, JSON.stringify(s));
+}
+document.querySelectorAll('textarea,input,select').forEach(e => e.addEventListener('change', save));
+
+function show(url, seed) {
+  cur = { url, seed };
+  $('stage').innerHTML = '<img src="' + url + '" alt="">';
+  $('bar').hidden = false;
+  $('sd').textContent = 'seed ' + seed;
+  drawRoll();
+}
+function drawRoll() {
+  $('roll').innerHTML = made.map(m =>
+    '<img src="' + m.url + '" data-u="' + m.url + '" data-s="' + m.seed + '"' +
+    (cur && cur.url === m.url ? ' class="on"' : '') + '>').join('');
+  $('roll').querySelectorAll('img').forEach(i =>
+    i.onclick = () => show(i.dataset.u, i.dataset.s));
+}
+drawRoll();
+if (made.length) show(made[0].url, made[0].seed);
+
+
+async function generate() {
+  const prompt = $('p').value.trim();
+  if (!prompt) { $('st').textContent = '프롬프트를 적어 주세요'; return; }
+  const [w, h] = $('size').value.split('x').map(Number);
+  $('go').disabled = true;
+  const t0 = Date.now();
+  const tick = setInterval(() =>
+    $('st').textContent = '그리는 중… ' + ((Date.now() - t0) / 1000).toFixed(0) + '초', 200);
+  try {
+    const r = await fetch(API+'/api/nai', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt, uc: $('uc').value, model: $('model').value,
+        width: w, height: h, steps: +$('steps').value,
+        scale: +$('scale').value, seed: +$('seed').value || 0
+      })
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || '실패');
+    made.unshift({ url: j.url, seed: j.seed });
+    made = made.slice(0, 40);        // 목록만 자른다 — 파일은 서버에 남는다
+    localStorage.setItem(HIST, JSON.stringify(made));
+    show(j.url, j.seed);
+    $('st').textContent = ((Date.now() - t0) / 1000).toFixed(1) + '초';
+  } catch (e) {
+    $('st').textContent = e.message;
+  } finally {
+    clearInterval(tick);
+    $('go').disabled = false;
+  }
+}
+$('go').onclick = generate;
+$('again').onclick = generate;
+$('useseed').onclick = () => { if (cur) { $('seed').value = cur.seed; save(); $('st').textContent = '시드를 고정했어요'; } };
+$('dl').onclick = () => {
+  if (!cur) return;
+  const a = document.createElement('a');
+  a.href = cur.url; a.download = 'nai-' + cur.seed + '.png'; a.click();
+};
+// Ctrl+Enter 로 그리기 — 프롬프트 고치다 마우스로 손 옮기기 귀찮다
+$('p').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); generate(); }
+});
+</script>
+</body>
+</html>
