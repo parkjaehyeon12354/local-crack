@@ -717,12 +717,19 @@ const EFFORT_KO = {low:'낮음', medium:'보통', high:'높음'};
 function openGen(){
   document.getElementById('pmTitle').textContent = '출력 · 추론';
   const opt = (v, t, cur) => '<option value="' + v + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + t + '</option>';
-  const mt = localStorage.getItem('crack.maxTokens') || '0';
+  // 예전에 고른 값(2048 등)이 목록에서 빠졌으면 가장 가까운 칸으로 맞춘다.
+  // 안 그러면 선택칸이 빈 채로 떠서 무엇이 걸려 있는지 알 수 없다.
+  const STEPS = [0, 1000, 1500, 3000];
+  let mt = +(localStorage.getItem('crack.maxTokens') || 0);
+  if (!STEPS.includes(mt)){
+    mt = STEPS.reduce((a, b) => Math.abs(b - mt) < Math.abs(a - mt) ? b : a);
+    localStorage.setItem('crack.maxTokens', mt);
+  }
   const ef = localStorage.getItem('crack.effort') || '';
   document.getElementById('pmBody').innerHTML =
     '<div class="fld-l">최대 출력 길이</div>' +
     '<select id="gMax">' +
-      [[0,'제한없음 (모델 기본값)'],[1024,'1024 토큰'],[2048,'2048 토큰'],[4096,'4096 토큰'],[8192,'8192 토큰']]
+      [[0,'제한없음 (모델 기본값)'],[1000,'1000 토큰 — 짧게'],[1500,'1500 토큰 — 보통'],[3000,'3000 토큰 — 길게']]
         .map(([v,t]) => opt(v, t, mt)).join('') + '</select>' +
     '<div class="fld-d">사고하는 모델은 값을 정해두면 답이 비어 나올 수 있어요.</div>' +
     '<div class="fld-l">추론 강도</div>' +
