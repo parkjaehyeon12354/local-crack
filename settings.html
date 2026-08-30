@@ -32,6 +32,13 @@ h1{font-size:26px;letter-spacing:-.5px;margin-bottom:26px;}
 select{width:100%;appearance:none;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;
   color:#e8e8e8;padding:11px 12px;font-size:14px;outline:none;cursor:pointer;font-family:inherit;}
 select:focus{border-color:#4a4a4a;}
+.sw-row{display:flex;align-items:center;gap:16px}
+.sw-row .desc{margin:4px 0 0}
+.sw-t{font-size:14px;color:#e8e8e8}
+.sw{flex:none;width:46px;height:26px;border-radius:13px;border:none;background:#2e2e2e;padding:3px;cursor:pointer;transition:background .15s}
+.sw span{display:block;width:20px;height:20px;border-radius:50%;background:#8a8a8a;transition:transform .15s,background .15s}
+.sw.on{background:#f5442e}
+.sw.on span{background:#fff;transform:translateX(20px)}
 .line{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1c1c1c;font-size:13px;}
 .line:last-child{border-bottom:0;}
 .line .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -105,6 +112,18 @@ select:focus{border-color:#4a4a4a;}
   </div>
 
   <div class="card">
+    <h2>이미지 이름</h2>
+    <div class="sw-row">
+      <div>
+        <div class="sw-t">파일 이름을 그대로 쓰기</div>
+        <div class="desc">스토리 이미지를 올릴 때 <code>칸나_무표정.png</code> → 이름 <b>칸나_무표정</b>.
+          끄면 이름이 비어서 직접 적어야 합니다 — 이름이 없으면 모델에게 보내는 목록에서 빠집니다.</div>
+      </div>
+      <button class="sw" id="imgname" role="switch" aria-label="파일 이름을 그대로 쓰기"><span></span></button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>사용량 자동 새로고침</h2>
     <div class="desc">사용량·잔액 조회는 모델을 부르지 않아 <b>토큰을 쓰지 않습니다</b>. 모델 창을 열 때는 주기와 상관없이 항상 새로 불러옵니다.</div>
     <select id="poll">
@@ -160,6 +179,7 @@ const KEY = 'crack.defaultModel';   // "제공사id/모델id" — chat.html도 �
 const POLL = 'crack.usagePoll';     // 사용량 자동 갱신 주기(초). 0 = 끔
 const MAXTOK = 'crack.maxTokens';   // 0 = 안 보냄
 const KEEP = 'crack.keepTurns';     // 0 = 요약 안 함
+const IMGNAME = 'crack.imgName';    // '0' 이면 파일 이름을 안 따온다 (기본 켬)
 
 let toastTimer;
 function toast(msg){
@@ -194,6 +214,15 @@ async function load(){
   $('model').innerHTML = opts || '<option value="">쓸 수 있는 모델이 없어요</option>';
   if (saved && [...$('model').options].some(o => o.value === saved)) $('model').value = saved;
   $('model').onchange = () => { localStorage.setItem(KEY, $('model').value); toast('기본 모델을 저장했어요'); };
+
+  // 켬이 기본 — 저장된 적 없으면 '0'이 아니므로 on
+  const sw = $('imgname');
+  const paint = () => sw.classList.toggle('on', localStorage.getItem(IMGNAME) !== '0');
+  paint();
+  sw.onclick = () => {
+    localStorage.setItem(IMGNAME, localStorage.getItem(IMGNAME) === '0' ? '1' : '0');
+    paint(); toast('저장했어요');
+  };
 
   $('poll').value = localStorage.getItem(POLL) || '0';
   $('poll').onchange = () => { localStorage.setItem(POLL, $('poll').value); toast('저장했어요'); };

@@ -681,7 +681,9 @@ async function uploadImgs(files){
       const r=await fetch('/api/images',{method:'POST',body:f});
       const j=await r.json();
       if(!r.ok)throw new Error(j.error||'실패');
-      return {label:f.name.replace(/\.[^.]+$/,''),url:j.url};
+      // 설정에서 끄면 이름을 비워 둔다 (기본은 파일 이름을 그대로)
+      const useName=localStorage.getItem('crack.imgName')!=='0';
+      return {label:useName?f.name.replace(/\.[^.]+$/,''):'',url:j.url};
     }catch(err){ toast(f.name+': '+err.message); return null; }
     finally{ tick(); }
   }));
