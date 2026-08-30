@@ -112,6 +112,13 @@ select:focus{border-color:#4a4a4a;}
   </div>
 
   <div class="card">
+    <h2>서브모델</h2>
+    <div class="desc">사건 기록·장기 기억 요약만 이 모델이 맡습니다. 요약은 창작이 아니라 추출이라
+      싼 모델로 충분하고, 20턴마다 본편 모델을 한 번 더 부르지 않게 됩니다.</div>
+    <select id="submodel"></select>
+  </div>
+
+  <div class="card">
     <h2>이미지 이름</h2>
     <div class="sw-row">
       <div>
@@ -180,6 +187,7 @@ const POLL = 'crack.usagePoll';     // 사용량 자동 갱신 주기(초). 0 = 
 const MAXTOK = 'crack.maxTokens';   // 0 = 안 보냄
 const KEEP = 'crack.keepTurns';     // 0 = 요약 안 함
 const IMGNAME = 'crack.imgName';    // '0' 이면 파일 이름을 안 따온다 (기본 켬)
+const SUBMODEL = 'crack.subModel';  // 요약 전용. 비면 본편 모델을 쓴다
 
 let toastTimer;
 function toast(msg){
@@ -214,6 +222,12 @@ async function load(){
   $('model').innerHTML = opts || '<option value="">쓸 수 있는 모델이 없어요</option>';
   if (saved && [...$('model').options].some(o => o.value === saved)) $('model').value = saved;
   $('model').onchange = () => { localStorage.setItem(KEY, $('model').value); toast('기본 모델을 저장했어요'); };
+
+  // 서브모델 — 같은 목록에 '안 씀' 하나를 앞에 붙인다
+  const savedSub = localStorage.getItem(SUBMODEL) || '';
+  $('submodel').innerHTML = '<option value="">안 씀 (본편 모델로 요약)</option>' + opts;
+  if (savedSub && [...$('submodel').options].some(o => o.value === savedSub)) $('submodel').value = savedSub;
+  $('submodel').onchange = () => { localStorage.setItem(SUBMODEL, $('submodel').value); toast('저장했어요'); };
 
   // 켬이 기본 — 저장된 적 없으면 '0'이 아니므로 on
   const sw = $('imgname');

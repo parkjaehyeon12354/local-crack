@@ -766,7 +766,8 @@ function openChronicle(){
           // 화면에 보이는 대화 그대로 (오류 메시지는 뺀다)
           history: log.filter(m => !m.error).map(m => ({role:m.role, content:m.content})),
           chronicle: t.value,
-          logged_turns: loggedTurns
+          logged_turns: loggedTurns,
+          sub_model: localStorage.getItem('crack.subModel') || ''
         })});
       const d = await r.json();
       if (!r.ok){ err.textContent = d.error || '요약하지 못했어요'; return; }
@@ -1208,6 +1209,7 @@ async function callChat(message){
         img_off: imgOff,
         max_tokens: +(localStorage.getItem('crack.maxTokens') || 0),
         keep_turns: +(localStorage.getItem('crack.keepTurns') || 0),
+        sub_model: localStorage.getItem('crack.subModel') || '',
         story: currentStory,
         history: entries.map(m => ({role:m.role, content:m.content})),
         message: message

@@ -831,6 +831,14 @@ def recap_full(model_id, msgs, chronicle, upto, mode="full"):
     return f"{head} ~{upto}턴\n{out}", True
 
 
+def sub_model(data, main):
+    """요약·기록에 쓸 모델. 설정에서 고른 게 있으면 그것, 없으면 본편과 같은 것.
+    요약은 창작이 아니라 추출이라 싼 모델로 충분하다 — 본편 모델의
+    구독 한도를 20턴마다 갉아먹지 않게 하는 것이 목적."""
+    sub = str(data.get("sub_model") or "").strip()
+    return sub if sub and "/" in sub else main
+
+
 SUMMARY_PROMPT = (
     "아래는 롤플레이 대화의 오래된 부분이다. 이어서 진행할 때 필요한 것만 "
     "한국어 개조식으로 요약해라. 인물이 알게 된 사실, 관계 변화, 약속, "
@@ -1007,6 +1015,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if _catalog else "")
             turns = turn_count(rhist)
             rmode = data.get("mode")
+            mdl = sub_model(data, mdl)     # 요약은 서브모델로
             if rmode in ("full", "chars"):
                 out, ok = recap_full(mdl, rhist, chron, turns, rmode)
             else:
@@ -1064,17 +1073,18 @@ class Handler(SimpleHTTPRequestHandler):
             every = int(data.get("event_every") or EVENT_EVERY)
             mode = data.get("event_mode") or "append"
             turns = turn_count(hist) + 1        # 지금 보내는 이 발화 포함
+            sub = sub_model(data, m)            # 요약·기록 담당
             wrote_events = False
             if every > 0 and turns - logged >= every:
                 upto = logged + (turns - logged) // every * every
                 if mode in ("full", "chars"):
                     # 다시 쓰기 — 기존 줄거리 + 처음부터의 대화를 종합
                     chronicle, wrote_events = recap_full(
-                        m, hist[:upto * 2], chronicle, upto, mode)
+                        sub, hist[:upto * 2], chronicle, upto, mode)
                 else:
                     # 아직 기록 안 한 구간 = logged턴 다음부터 upto턴까지
                     seg = hist[logged * 2:upto * 2] or hist[-every * 2:]
-                    chronicle, wrote_events = log_events(m, seg, chronicle, upto)
+                    chronicle, wrote_events = log_events(sub, seg, chronicle, upto)
                 if wrote_events:
                     logged = upto
 
@@ -1082,7 +1092,7 @@ class Handler(SimpleHTTPRequestHandler):
             summarized = False
             if keep > 0 and len(hist) > keep * 2:
                 cut = len(hist) - keep * 2
-                new_memory = condense(m, hist[:cut], memory)
+                new_memory = condense(sub, hist[:cut], memory)
                 summarized = new_memory != memory
                 memory = new_memory
                 hist = hist[cut:]
@@ -1392,6 +1402,15 @@ def selftest():
     for v in ({}, {"imgOn": True}):
         assert "[이미지]" in build_system(
             dict(ps, images=ist["images"], **v), [], ""), v
+
+    # 서브모델: 고른 게 있으면 그것, 없거나 이상하면 본편 모델로 떨어진다
+    assert sub_model({}, "main/m") == "main/m"
+    assert sub_model({"sub_model": ""}, "main/m") == "main/m"
+    assert sub_model({"sub_model": "   "}, "main/m") == "main/m"
+    assert sub_model({"sub_model": None}, "main/m") == "main/m"
+    assert sub_model({"sub_model": "쓰레기"}, "main/m") == "main/m"   # 슬래시 없음
+    assert sub_model({"sub_model": "antigravity/gemini-3.7-flash-low"},
+                     "main/m") == "antigravity/gemini-3.7-flash-low"
 
     # 제공사 목록에 CLI 두 개가 다 뜨는가 (설치돼 있을 때만)
     provs = discover_providers()
