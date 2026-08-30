@@ -1210,6 +1210,7 @@ async function callChat(message){
         img_off: imgOff,
         max_tokens: +(localStorage.getItem('crack.maxTokens') || 0),
         keep_turns: +(localStorage.getItem('crack.keepTurns') || 0),
+        effort: localStorage.getItem('crack.effort') || '',
         sub_model: localStorage.getItem('crack.subModel') || '',
         sub_effort: localStorage.getItem('crack.subEffort') || '',
         story: currentStory,

@@ -1163,7 +1163,8 @@ class Handler(SimpleHTTPRequestHandler):
                      active_notes(story.get("notes", []), hist, msg,
                                   start_name=story_start(story).get("name"))]
             try:
-                reply = chat(m, system, hist, msg, max_tokens)
+                reply = chat(m, system, hist, msg, max_tokens,
+                             effort=str(data.get("effort") or ""))
             except Exception as e:
                 return self._json({"error": str(e)[:400]}, 502)
             return self._json({"reply": reply, "fired": fired,

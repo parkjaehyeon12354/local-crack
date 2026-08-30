@@ -101,6 +101,18 @@ select:focus{border-color:#4a4a4a;}
   </div>
 
   <div class="card">
+    <h2>추론 강도</h2>
+    <div class="desc">본편 답변을 만들 때 모델이 얼마나 오래 생각할지. 지원하지 않는 제공사에서는
+      자동으로 빼고 보냅니다. 이름에 강도가 붙은 모델(<code>…-low</code>)은 그 값이 우선입니다.</div>
+    <select id="effort">
+      <option value="">모델 기본값</option>
+      <option value="low">낮음 — 빠르고 싸게</option>
+      <option value="medium">보통</option>
+      <option value="high">높음 — 느리지만 꼼꼼히</option>
+    </select>
+  </div>
+
+  <div class="card">
     <h2>장기 기억</h2>
     <div class="desc">대화가 길어지면 오래된 turn을 요약해 <code>[장기 기억]</code>으로 접어 넣습니다.
       최근 N턴은 원문 그대로 남습니다. 요약에도 모델 호출이 한 번 듭니다.</div>
@@ -198,6 +210,7 @@ const KEY = 'crack.defaultModel';   // "제공사id/모델id" — chat.html도 �
 const POLL = 'crack.usagePoll';     // 사용량 자동 갱신 주기(초). 0 = 끔
 const MAXTOK = 'crack.maxTokens';   // 0 = 안 보냄
 const KEEP = 'crack.keepTurns';     // 0 = 요약 안 함
+const EFFORT = 'crack.effort';      // 본편 추론 강도. 비면 안 보냄
 const IMGNAME = 'crack.imgName';    // '0' 이면 파일 이름을 안 따온다 (기본 켬)
 const SUBMODEL = 'crack.subModel';  // 요약 전용. 비면 본편 모델을 쓴다
 const SUBEFF = 'crack.subEffort';   // 서브모델 추론 강도. 비면 안 보냄
@@ -260,7 +273,8 @@ async function load(){
   $('poll').value = localStorage.getItem(POLL) || '0';
   $('poll').onchange = () => { localStorage.setItem(POLL, $('poll').value); toast('저장했어요'); };
 
-  for (const [el, key, def] of [['maxtok', MAXTOK, '0'], ['keepturns', KEEP, '0']]){
+  for (const [el, key, def] of [['maxtok', MAXTOK, '0'], ['keepturns', KEEP, '0'],
+                                ['effort', EFFORT, '']]){
     $(el).value = localStorage.getItem(key) || def;
     $(el).onchange = () => { localStorage.setItem(key, $(el).value); toast('저장했어요'); };
   }
