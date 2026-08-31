@@ -14,6 +14,11 @@ body{
   display:flex;flex-direction:column;overflow:hidden;
 }
 button{font:inherit;cursor:pointer;background:none;border:none;color:inherit}
+/* UI/UX 체크리스트: 키보드 포커스가 보여야 하고, 모션은 줄일 수 있어야 한다 */
+button:focus-visible,[role=button]:focus-visible{outline:2px solid #f5442e;outline-offset:2px}
+@media (prefers-reduced-motion: reduce){
+  *{transition:none !important;animation:none !important}
+}
 input,textarea,select{font:inherit}
 img{display:block}
 ::-webkit-scrollbar{width:10px;height:10px}
@@ -34,23 +39,33 @@ header{
 }
 .icon-btn:hover{background:#1d1d1d;color:#e8e8e8}
 .icon-btn.sm{width:28px;height:28px}
+/* ── 버튼: 빨강 잉크. 색이 아니라 윤곽·채움·그림자로 계층 ── */
 .btn-outline{
   display:inline-flex;align-items:center;gap:6px;
   border:1px solid #3a3a3a;border-radius:8px;color:#d5d5d5;
   padding:8px 14px;font-size:13px;background:transparent;
+  transition:border-color .18s,color .18s,box-shadow .18s,transform .12s;
 }
-.btn-outline:hover{background:#191919}
+.btn-outline:hover{border-color:#f5442e;color:#f5442e;box-shadow:0 0 0 1px #f5442e inset}
+.btn-outline:active{transform:translateY(1px)}
 .btn-outline.sm{padding:6px 11px;font-size:12px;border-radius:7px}
 .btn-solid{
   background:#fff;color:#0d0d0d;border:none;border-radius:8px;
   padding:8px 16px;font-size:13px;font-weight:600;
+  transition:background .18s,transform .12s;
 }
+.btn-solid:hover{background:#ffdcd6}
+.btn-solid:active{transform:translateY(1px)}
 .btn-accent{
   display:inline-flex;align-items:center;gap:6px;
   background:#f5442e;border:none;color:#fff;border-radius:8px;
   padding:9px 16px;font-size:13px;font-weight:600;flex:none;
+  box-shadow:0 0 0 0 rgba(245,68,46,.45);
+  transition:background .18s,box-shadow .25s,transform .12s;
 }
-.btn-accent:hover{background:#ff5741}
+.btn-accent:hover{background:#ff5741;box-shadow:0 4px 18px rgba(245,68,46,.45)}
+.btn-accent:active{transform:translateY(1px);box-shadow:0 0 0 0 rgba(245,68,46,0)}
+.btn-accent:disabled{opacity:.55;cursor:default;box-shadow:none}
 .btn-accent.sm{padding:7px 13px;font-size:12px}
 .btn-accent.xs{padding:6px 11px;font-size:12px;border-radius:6px}
 
@@ -79,10 +94,12 @@ main{flex:1;display:flex;min-height:0}
   display:flex;align-items:center;justify-content:space-between;
   padding:0 40px;background:rgba(13,13,13,.96);border-top:1px solid #1c1c1c;
 }
-.btn-prev{background:#1a1a1a;border:1px solid #2e2e2e;color:#d5d5d5;border-radius:8px;padding:10px 26px;font-size:14px}
-.btn-prev:hover{background:#222}
-.btn-next{background:#f5442e;border:none;color:#fff;border-radius:8px;padding:10px 26px;font-size:14px;font-weight:600}
-.btn-next:hover{background:#ff5741}
+.btn-prev{background:#1a1a1a;border:1px solid #2e2e2e;color:#d5d5d5;border-radius:8px;padding:10px 26px;font-size:14px;transition:border-color .18s,color .18s,transform .12s}
+.btn-prev:hover{border-color:#f5442e;color:#f5442e}
+.btn-prev:active{transform:translateY(1px)}
+.btn-next{background:#f5442e;border:none;color:#fff;border-radius:8px;padding:10px 26px;font-size:14px;font-weight:600;transition:background .18s,box-shadow .25s,transform .12s;box-shadow:0 0 0 0 rgba(245,68,46,.45)}
+.btn-next:hover{background:#ff5741;box-shadow:0 4px 18px rgba(245,68,46,.45)}
+.btn-next:active{transform:translateY(1px);box-shadow:none}
 #preview-col{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
 
 /* ---------- fields ---------- */
@@ -190,9 +207,10 @@ input::placeholder,textarea::placeholder{color:#5a5a5a}
 .up-zone .btn-block{margin:0}
 .up-hint{text-align:center;color:#666;font-size:12px;margin-top:8px}
 .name-bar{display:flex;align-items:center;gap:10px;margin:10px 0 6px}
-.btn-ai{background:#1a1a1a;border:1px solid #2e2e2e;color:#eee;border-radius:8px;padding:7px 12px;font-size:13px;font-family:inherit;cursor:pointer}
+.btn-ai{background:#1a1a1a;border:1px solid #2e2e2e;color:#eee;border-radius:8px;padding:7px 12px;font-size:13px;font-family:inherit;cursor:pointer;transition:border-color .18s,color .18s,transform .12s}
 .btn-ai:hover{border-color:#f5442e;color:#f5442e}
-.btn-ai:disabled{opacity:.5;cursor:default;border-color:#2e2e2e;color:#777}
+.btn-ai:active{transform:translateY(1px)}
+.btn-ai:disabled{opacity:.5;cursor:default;border-color:#2e2e2e;color:#777;transform:none}
 .mrow{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid #2a2a2a;border-radius:10px;margin-bottom:8px;background:#141414}
 .mrow-n{width:26px;flex:none;text-align:center;font-weight:700;color:#f5442e;font-size:14px}
 .mrow-th{width:52px;height:52px;flex:none;border-radius:8px;overflow:hidden;background:#1c1c1c;display:flex;align-items:center;justify-content:center}

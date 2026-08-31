@@ -1,3 +1,9 @@
+/* 모바일·접근성 공통. reduced-motion 은 폭과 무관하게 존중한다 */
+@media (prefers-reduced-motion: reduce){
+  *{transition:none !important;animation:none !important}
+}
+button:focus-visible,[role=button]:focus-visible,a:focus-visible{outline:2px solid #f5442e;outline-offset:2px}
+
 /* 폰 화면 (mobile.css)
  *
  * ★HTML 을 안 건드리고 CSS 한 장으로만 고친다 — 페이지가 7개인데 구조를 손대면
@@ -9,17 +15,17 @@
 
 /* ── 공통: 손가락에 맞춘 크기 ───────────────────────────── */
 /* 44px 이 애플·구글이 같이 말하는 최소선이다. 19px 짜리 링크는 못 누른다. */
-.gnav a, .gnav-a a {
+.gnav a {
   padding: 11px 4px;
   font-size: 14px;
 }
-#gbar, .gbar {
+#gbar {
   height: auto;
   min-height: 46px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
-#gbar::-webkit-scrollbar, .gbar::-webkit-scrollbar { display: none; }
+#gbar::-webkit-scrollbar { display: none; }
 .gnav {
   gap: 14px;
   white-space: nowrap;
