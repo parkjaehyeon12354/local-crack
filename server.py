@@ -971,6 +971,24 @@ def _fetch_models(p, timeout=8):
     return out, ("" if live else why)
 
 
+# 카탈로그 순서는 응답이 돌아온 순서라 그때그때 다르다. 본편은 Grok 이니
+# 그것부터 찾고, 없으면 아무거나 첫 번째. 화면에서 고른 값이 늘 이긴다.
+PREFER = "xai"
+PREFER_MODEL = "grok-4.6"      # 이름순 첫 번째는 grok-4.20-non-reasoning 이다
+
+
+def default_model():
+    """카탈로그는 PREFER 가 맨 앞이도록 정렬돼 있다."""
+    if not _catalog or not _catalog[0].get("models"):
+        return ""
+    ms = _catalog[0]["models"]
+    if _catalog[0]["id"] == PREFER:
+        for m in ms:
+            if m["id"] == PREFER_MODEL:
+                return f"{PREFER}/{PREFER_MODEL}"
+    return f"{_catalog[0]['id']}/{ms[0]['id']}"
+
+
 def refresh_models():
     """서버 시작 시 1회. 살아있는 제공사와 그 모델 전부를 담는다."""
     global _catalog, _by_model, _problems
@@ -987,6 +1005,10 @@ def refresh_models():
                     "models": models})
         for m in models:
             by[f"{p['id']}/{m['id']}"] = p
+    # 화면도 첫 번째를 기본으로 고른다 — 순서를 여기서 정해야 양쪽이 맞는다
+    cat.sort(key=lambda p: p["id"] != PREFER)
+    if cat and cat[0]["id"] == PREFER:      # 화면도 models[0] 을 기본으로 고른다
+        cat[0]["models"].sort(key=lambda m: m["id"] != PREFER_MODEL)
     _catalog, _by_model, _problems = cat, by, bad
     return cat
 
@@ -1620,9 +1642,7 @@ class Handler(SimpleHTTPRequestHandler):
             rhist = data.get("history") or []
             chron = str(data.get("chronicle") or "")
             logged = int(data.get("logged_turns") or 0)
-            mdl = data.get("model") or (
-                f"{_catalog[0]['id']}/{_catalog[0]['models'][0]['id']}"
-                if _catalog else "")
+            mdl = data.get("model") or default_model()
             turns = turn_count(rhist)
             rmode = data.get("mode")
             mdl, eff = sub_model(data, mdl)     # 요약은 서브모델로
@@ -1676,10 +1696,7 @@ class Handler(SimpleHTTPRequestHandler):
             max_tokens = int(data.get("max_tokens") or 0)
             keep = int(data.get("keep_turns") or 0)
 
-            # 기본은 카탈로그 첫 번째 — 모델 이름을 하드코딩하지 않는다
-            m = data.get("model") or (
-                f"{_catalog[0]['id']}/{_catalog[0]['models'][0]['id']}"
-                if _catalog else "")
+            m = data.get("model") or default_model()
 
             # 사건 기록: N턴마다 자동 요약. 주기·방식은 설정에서 받는다.
             chronicle = str(data.get("chronicle") or "")
@@ -2394,6 +2411,30 @@ def selftest():
     # 모델 카탈로그: 응답이 안 오는 제공사는 목록에서 빠지고 이유가 남아야 한다
     global _catalog, _by_model, _problems
     saved = (_catalog, _by_model, _problems)
+
+    # ★Grok 이 맨 앞이어야 한다 — 화면도 서버도 첫 번째를 기본으로 고른다.
+    #   여기서 sort 를 다시 부르면 refresh_models 의 정렬을 지워도 통과한다.
+    #   그러니 **진짜 함수**를 태워서 나온 결과만 본다. NVIDIA 를 먼저 준다.
+    _o_disc, _o_fetch = globals()["discover_providers"], globals()["_fetch_models"]
+    try:
+        globals()["discover_providers"] = lambda: [
+            {"id": "nvidia", "name": "N", "icon": "", "color": "", "src": "hermes"},
+            {"id": PREFER, "name": "G", "icon": "", "color": "", "src": "hermes"}]
+        globals()["_fetch_models"] = lambda p: (
+            [{"id": "grok-4.20", "name": "x"},
+             {"id": PREFER_MODEL, "name": "g"}] if p["id"] == PREFER
+            else [{"id": "yi", "name": "y"}], "")
+        cat = refresh_models()
+        assert cat[0]["id"] == PREFER, f"Grok 이 앞이 아니다: {[p['id'] for p in cat]}"
+        assert cat[0]["models"][0]["id"] == PREFER_MODEL, "이름순 첫 번째가 남았다"
+        assert default_model() == f"{PREFER}/{PREFER_MODEL}", default_model()
+        _catalog = [{"id": "nvidia", "models": [{"id": "yi"}]}]   # Grok 이 죽은 날
+        assert default_model() == "nvidia/yi", "남은 것으로 안 넘어갔다"
+        _catalog = []
+        assert default_model() == "", "빈 카탈로그가 터지면 안 된다"
+    finally:
+        globals()["discover_providers"], globals()["_fetch_models"] = _o_disc, _o_fetch
+
     orig = globals()["discover_providers"]
     orig_cache = globals()["_hermes_cached"]
     try:
