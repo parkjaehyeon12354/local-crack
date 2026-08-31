@@ -71,38 +71,20 @@ textarea{line-height:1.6;}
 .bar button:hover{border-color:#f5442e;color:#f5442e;}
 .bar .seed{color:#6e6e6e;font-size:11px;margin-left:auto;font-family:ui-monospace,monospace;}
 
-.ghead{display:flex;align-items:center;gap:12px;margin:22px 0 10px;
-  font-size:13px;color:#9a9a9a;}
-.ghead b{color:#ddd;}
-.ghead .big{margin-left:auto;display:flex;align-items:center;gap:6px;
-  font-size:12px;color:#8a8a8a;cursor:pointer;}
-.ghead .big input{width:auto;}
-
-/* 검수가 목적이라 기본은 여러 장을 한눈에. 「크게」로 한 장씩 뜯어본다. */
-.grid{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));}
-.grid.big{grid-template-columns:repeat(auto-fill,minmax(230px,1fr));}
-.gi{position:relative;border-radius:9px;overflow:hidden;background:#111;
+.roll{display:flex;gap:8px;margin-top:16px;overflow-x:auto;padding-bottom:6px;}
+.roll img{width:78px;height:78px;object-fit:cover;border-radius:8px;flex:none;
   border:2px solid transparent;cursor:pointer;}
-.gi.on{border-color:#f5442e;}
-.gi img{width:100%;aspect-ratio:1;object-fit:cover;display:block;}
-.grid.big .gi img{aspect-ratio:auto;max-height:280px;object-fit:contain;}
-.gi .x{position:absolute;top:5px;right:5px;width:22px;height:22px;border:0;
-  border-radius:6px;background:rgba(0,0,0,.65);color:#ddd;font-size:13px;
-  line-height:1;opacity:0;transition:opacity .12s;}
-.gi:hover .x{opacity:1;}
-.gi .x:hover{background:#f5442e;color:#fff;}
-.gi .cap{padding:6px 7px;font-size:10px;color:#7a7a7a;line-height:1.45;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.gempty{color:#4a4a4a;font-size:13px;padding:22px 0;}
-/* 손가락에는 hover 가 없다 — 지우기를 늘 보여준다 */
-@media(hover:none){.gi .x{opacity:.85;}}
+.roll img.on{border-color:#f5442e;}
+.more{display:inline-block;margin-top:10px;color:#7a7a7a;font-size:12px;
+  text-decoration:none;}
+.more:hover{color:#f5442e;}
 </style>
 </head>
 <body>
 
 <header id="gbar">
   <nav class="gnav">
-    <a href="/chat.html">스토리</a><a href="/works.html">내 작품</a><a class="on" href="/images.html">이미지</a><a href="/settings.html">설정</a>
+    <a href="/chat.html">스토리</a><a href="/works.html">내 작품</a><a class="on" href="/images.html">이미지</a><a href="/gallery.html">갤러리</a><a href="/settings.html">설정</a>
   </nav>
 </header>
 
@@ -172,11 +154,8 @@ textarea{line-height:1.6;}
         <button id="useseed">이 시드 고정</button>
         <span class="seed" id="sd"></span>
       </div>
-      <div class="ghead">
-        <span>만든 그림 <b id="gn">0</b></span>
-        <label class="big"><input type="checkbox" id="gbig"> 크게</label>
-      </div>
-      <div class="grid" id="grid"></div>
+      <div class="roll" id="roll"></div>
+      <a class="more" href="/gallery.html">갤러리에서 전부 보기 →</a>
     </div>
   </div>
 </div></div>
@@ -208,54 +187,18 @@ function show(url, seed) {
   $('sd').textContent = 'seed ' + seed;
   drawRoll();
 }
-// 목록은 **서버 파일**이 원본이다. localStorage 를 쓰면 브라우저를 바꿨을 때
-// 안 보이고, 서버에서 지운 그림이 목록에 남는다.
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"]/g,
-    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-}
+// 스트립은 최근 것 몇 장만. 전부 보고 지우는 일은 갤러리 탭이 한다 —
+// 여기서 또 그리면 같은 목록을 두 곳에서 관리하게 된다.
 function drawRoll() {
-  $('gn').textContent = made.length;
-  if (!made.length) { $('grid').innerHTML = '<div class="gempty">아직 없어요</div>'; return; }
-  $('grid').innerHTML = made.map(m => {
-    const cap = m.prompt ? esc(String(m.prompt).slice(0, 60))
-                         : (m.seed ? 'seed ' + m.seed : '올린 그림');
-    return '<div class="gi' + (cur && cur.url === m.url ? ' on' : '') +
-      '" data-u="' + esc(m.url) + '" data-s="' + esc(m.seed || 0) +
-      '" data-n="' + esc(m.name || '') + '" title="' + esc(m.prompt || '') + '">' +
-      '<img src="' + esc(m.url) + '" alt="" loading="lazy">' +
-      '<button class="x" data-del="' + esc(m.name || '') + '">✕</button>' +
-      '<div class="cap">' + cap + '</div></div>';
-  }).join('');
+  $('roll').innerHTML = made.slice(0, 12).map(m =>
+    '<img src="' + m.url + '" data-u="' + m.url + '" data-s="' + (m.seed || 0) + '"' +
+    (cur && cur.url === m.url ? ' class="on"' : '') + '>').join('');
+  $('roll').querySelectorAll('img').forEach(i =>
+    i.onclick = () => show(i.dataset.u, i.dataset.s));
 }
-$('grid').addEventListener('click', async ev => {
-  const del = ev.target.closest('[data-del]');
-  if (del) {                      // 지우기가 먼저 — 안 그러면 클릭이 열기로 샌다
-    ev.stopPropagation();
-    const name = del.dataset.del;
-    if (!name || !confirm('이 그림을 지울까요?')) return;
-    const r = await fetch('/api/gallery-del', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
-    });
-    if (r.ok) { if (cur && cur.url.endsWith(name)) cur = null; loadGallery(); }
-    else { const j = await r.json().catch(() => ({})); alert(j.error || '못 지웠어요'); }
-    return;
-  }
-  const g = ev.target.closest('.gi');
-  if (g) show(g.dataset.u, g.dataset.s);
-});
-$('gbig').addEventListener('change', e => {
-  $('grid').classList.toggle('big', e.target.checked);
-  localStorage.setItem('crack.naiBig', e.target.checked ? '1' : '');
-});
-if (localStorage.getItem('crack.naiBig')) { $('gbig').checked = true; $('grid').classList.add('big'); }
-
 async function loadGallery() {
-  try {
-    const r = await fetch('/api/gallery');
-    made = (await r.json()).items || [];
-  } catch (e) { made = []; }
+  try { made = (await (await fetch('/api/gallery')).json()).items || []; }
+  catch (e) { made = []; }
   drawRoll();
   if (!cur && made.length) show(made[0].url, made[0].seed);
 }

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이미지 — 크랙</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  background:#0d0d0d;color:#e8e8e8;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+button{font-family:inherit;cursor:pointer;}
+::-webkit-scrollbar{width:10px;}
+::-webkit-scrollbar-thumb{background:#2b2b2b;border-radius:6px;border:2px solid #0d0d0d;}
+::-webkit-scrollbar-track{background:transparent;}
+
+#gbar{height:40px;flex:none;display:flex;align-items:center;padding:0 14px;}
+.gnav{display:flex;gap:16px;}
+.gnav a{color:#8a8a8a;font-size:13px;text-decoration:none;}
+.gnav a:hover{color:#d0d0d0;}
+.gnav a.on{color:#e8e8e8;font-weight:600;}
+
+#scroll{flex:1;overflow-y:auto;}
+.page{max-width:1100px;margin:0 auto;padding:28px 20px 60px;}
+.head{display:flex;align-items:baseline;gap:12px;margin-bottom:22px;}
+.head h1{font-size:26px;letter-spacing:-.5px;}
+.head .note{color:#7a7a7a;font-size:12px;}
+
+.wrap{display:grid;grid-template-columns:380px 1fr;gap:22px;align-items:start;}
+@media(max-width:900px){.wrap{grid-template-columns:1fr;}}
+
+/* 검수가 목적이라 기본은 여러 장을 한눈에. 「크게」로 한 장씩 뜯어본다. */
+.tools{display:flex;align-items:center;gap:14px;margin-bottom:16px;
+  font-size:13px;color:#9a9a9a;flex-wrap:wrap;}
+.tools b{color:#ddd;}
+.tools input[type=search]{width:auto;flex:1;min-width:120px;max-width:320px;}
+/* 폰에서는 제목이 두 줄로 깨지고 「크게」가 화면 밖으로 밀린다 */
+@media(max-width:520px){
+  .head{flex-wrap:wrap;gap:4px;}
+  .head h1{font-size:22px;}
+  .head .note{flex-basis:100%;}
+  .tools{gap:9px;}
+}
+.tools label{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;}
+.tools label input{width:auto;}
+
+.grid{display:grid;gap:9px;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));}
+.grid.big{grid-template-columns:repeat(auto-fill,minmax(250px,1fr));}
+.gi{position:relative;border-radius:10px;overflow:hidden;background:#111;
+  border:2px solid transparent;cursor:pointer;}
+.gi:hover{border-color:#333;}
+.gi img{width:100%;aspect-ratio:1;object-fit:cover;display:block;}
+.grid.big .gi img{aspect-ratio:auto;max-height:300px;object-fit:contain;}
+.gi .x{position:absolute;top:5px;right:5px;width:23px;height:23px;border:0;
+  border-radius:6px;background:rgba(0,0,0,.65);color:#ddd;font-size:13px;
+  line-height:1;opacity:0;transition:opacity .12s;}
+.gi:hover .x{opacity:1;}
+.gi .x:hover{background:#f5442e;color:#fff;}
+.gi .cap{padding:7px 8px;font-size:10px;color:#7a7a7a;line-height:1.45;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.gempty{color:#4a4a4a;font-size:13px;padding:26px 0;}
+/* 손가락에는 hover 가 없다 — 지우기를 늘 보여준다 */
+@media(hover:none){.gi .x{opacity:.85;}}
+
+/* 크게 보기 — 검수의 본체. 프롬프트를 통째로 읽을 수 있어야 한다. */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.86);display:none;
+  align-items:center;justify-content:center;padding:20px;z-index:50;}
+.mask.on{display:flex;}
+.view{max-width:1000px;width:100%;max-height:92vh;display:flex;flex-direction:column;gap:12px;}
+.view img{max-width:100%;max-height:64vh;object-fit:contain;border-radius:10px;
+  align-self:center;}
+.meta{background:#121212;border:1px solid #242424;border-radius:10px;
+  padding:13px 15px;font-size:12px;color:#b0b0b0;line-height:1.7;overflow-y:auto;}
+.meta .pr{color:#ddd;word-break:break-word;}
+.meta .sub{color:#6e6e6e;font-size:11px;margin-top:7px;
+  font-family:ui-monospace,monospace;}
+.vbar{display:flex;gap:8px;flex-wrap:wrap;}
+.vbar button{background:#171717;border:1px solid #2c2c2c;color:#ddd;
+  border-radius:8px;padding:9px 14px;font-size:12px;}
+.vbar button:hover{border-color:#f5442e;color:#f5442e;}
+.vbar .sp{margin-left:auto;}
+</style>
+</head>
+<body>
+
+<header id="gbar">
+  <nav class="gnav">
+    <a href="/chat.html">스토리</a><a href="/works.html">내 작품</a><a href="/images.html">이미지</a><a class="on" href="/gallery.html">갤러리</a><a href="/settings.html">설정</a>
+  </nav>
+</header>
+
+<div id="scroll"><div class="page">
+  <div class="head">
+    <h1>갤러리</h1>
+    <span class="note">만든 그림을 모아 봅니다. 눌러서 크게 보고, 프롬프트를 확인하세요.</span>
+  </div>
+
+  <div class="tools">
+    <span><b id="gn">0</b>장</span>
+    <input id="q" type="search" placeholder="프롬프트로 찾기">
+    <label><input type="checkbox" id="gbig"> 크게</label>
+  </div>
+  <div class="grid" id="grid"></div>
+</div></div>
+
+<div class="mask" id="mask">
+  <div class="view">
+    <img id="vimg" src="" alt="">
+    <div class="meta" id="vmeta"></div>
+    <div class="vbar">
+      <button id="vprev">← 이전</button>
+      <button id="vnext">다음 →</button>
+      <button id="vdl">내려받기</button>
+      <button id="vcopy">프롬프트 복사</button>
+      <button id="vdel" class="sp">지우기</button>
+      <button id="vclose">닫기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+let all = [];      // 서버가 원본
+let shown = [];    // 검색으로 걸러진 것 — 이전/다음은 이걸 따라간다
+let at = -1;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+function when(sec) {
+  const d = new Date(sec * 1000), p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+         ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+function draw() {
+  const q = $('q').value.trim().toLowerCase();
+  shown = q ? all.filter(m => String(m.prompt || '').toLowerCase().includes(q)) : all;
+  $('gn').textContent = shown.length;
+  if (!shown.length) {
+    $('grid').innerHTML = '<div class="gempty">' +
+      (q ? '찾는 그림이 없어요' : '아직 만든 그림이 없어요') + '</div>';
+    return;
+  }
+  $('grid').innerHTML = shown.map((m, i) => {
+    const cap = m.prompt ? esc(String(m.prompt).slice(0, 70))
+                         : (m.seed ? 'seed ' + m.seed : '올린 그림');
+    return '<div class="gi" data-i="' + i + '" title="' + esc(m.prompt || '') + '">' +
+      '<img src="' + esc(m.url) + '" alt="" loading="lazy">' +
+      '<button class="x" data-del="' + esc(m.name || '') + '">✕</button>' +
+      '<div class="cap">' + cap + '</div></div>';
+  }).join('');
+}
+
+async function load() {
+  try { all = (await (await fetch('/api/gallery')).json()).items || []; }
+  catch (e) { all = []; }
+  draw();
+}
+
+function open_(i) {
+  if (i < 0 || i >= shown.length) return;
+  at = i;
+  const m = shown[i];
+  $('vimg').src = m.url;
+  const bits = [];
+  if (m.seed) bits.push('seed ' + m.seed);
+  if (m.w && m.h) bits.push(m.w + '×' + m.h);
+  if (m.steps) bits.push(m.steps + ' 스텝');
+  if (m.scale) bits.push('반영 ' + m.scale);
+  bits.push(when(m.at));
+  bits.push((i + 1) + ' / ' + shown.length);
+  $('vmeta').innerHTML =
+    '<div class="pr">' + (m.prompt ? esc(m.prompt) : '<span style="color:#5a5a5a">프롬프트 정보가 없는 그림이에요</span>') + '</div>' +
+    '<div class="sub">' + esc(bits.join('  ·  ')) + '</div>';
+  $('mask').classList.add('on');
+}
+function close_() { $('mask').classList.remove('on'); at = -1; }
+
+$('grid').addEventListener('click', async ev => {
+  // ✕ 를 먼저 본다. 나중에 보면 같은 클릭이 아래의 열기까지 탄다.
+  const del = ev.target.closest('[data-del]');
+  if (del) { await remove(del.dataset.del); return; }
+  const g = ev.target.closest('.gi');
+  if (g) open_(Number(g.dataset.i));
+});
+
+async function remove(name) {
+  if (!name || !confirm('이 그림을 지울까요?')) return;
+  const r = await fetch('/api/gallery-del', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    alert(j.error || '못 지웠어요');
+    return;
+  }
+  const was = at;
+  await load();
+  // 크게 보던 중이면 그 자리의 다음 그림으로 이어 본다
+  if (was >= 0) { if (shown.length) open_(Math.min(was, shown.length - 1)); else close_(); }
+}
+
+$('q').addEventListener('input', draw);
+$('gbig').addEventListener('change', e => {
+  $('grid').classList.toggle('big', e.target.checked);
+  localStorage.setItem('crack.galBig', e.target.checked ? '1' : '');
+});
+if (localStorage.getItem('crack.galBig')) { $('gbig').checked = true; $('grid').classList.add('big'); }
+
+$('vprev').onclick = () => open_(at - 1);
+$('vnext').onclick = () => open_(at + 1);
+$('vclose').onclick = close_;
+$('mask').onclick = e => { if (e.target === $('mask')) close_(); };
+$('vdl').onclick = () => {
+  const a = document.createElement('a');
+  a.href = shown[at].url; a.download = shown[at].name; a.click();
+};
+$('vcopy').onclick = async () => {
+  await navigator.clipboard.writeText(shown[at].prompt || '');
+  $('vcopy').textContent = '복사했어요';
+  setTimeout(() => { $('vcopy').textContent = '프롬프트 복사'; }, 1200);
+};
+$('vdel').onclick = () => remove(shown[at].name);
+
+// 크게 보는 중에만 화살표가 그림을 넘긴다 — 검색칸에 있을 땐 글자 이동이 맞다
+document.addEventListener('keydown', e => {
+  if (!$('mask').classList.contains('on')) return;
+  if (e.key === 'Escape') close_();
+  if (e.key === 'ArrowLeft') open_(at - 1);
+  if (e.key === 'ArrowRight') open_(at + 1);
+});
+
+load();
+</script>
+</body>
+</html>
