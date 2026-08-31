@@ -175,6 +175,20 @@ def pero_rel(f):
     return f.relative_to(PERO).as_posix()
 
 
+TAG_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]{0,7})_(\d{3})$")
+
+
+def name_tag(name):
+    """파일 이름에서 꼬리표와 번호를 뽑는다 — `A_001.png` → `("A", 1)`.
+
+    페로픽스에서 「파일 이름에서 씬 번호 빼기」를 켜고 씬을 `A` 로 지으면 이 꼴이 된다.
+    ★안 맞는 이름은 `("", 0)` 이고 목록 **뒤로** 간다 — 정리된 것이 먼저 보여야 한다.
+    ★`001_미소_001` 은 일부러 안 잡는다. 앞이 숫자라 꼬리표가 아니다.
+    """
+    m = TAG_RE.match(os.path.basename(name).rsplit(".", 1)[0])
+    return (m.group(1), int(m.group(2))) if m else ("", 0)
+
+
 def _is_pero_name(name):
     """페로픽스 그림인가. 그쪽 이름에는 폴더가 붙는다 (`z/output/…`)."""
     return "/" in name
@@ -1308,16 +1322,20 @@ class Handler(SimpleHTTPRequestHandler):
                 if f.name.startswith(".") or not f.is_file():
                     continue
                 st = f.stat()
+                tag, no = name_tag(f.name)
                 rows.append({"url": "/img/" + f.name, "name": f.name,
                              "at": int(st.st_mtime), "size": st.st_size,
-                             "from": "crack", **png_meta(f)})
+                             "from": "crack", "tag": tag, "no": no,
+                             **png_meta(f)})
             # 페로픽스 것은 **읽기만** 한다 — 복사하면 같은 그림이 두 벌이 되고
             # 한쪽을 지워도 다른 쪽이 남는다. 원본 폴더가 그대로 진실이다.
             for f in pero_images():
                 st = f.stat()
+                tag, no = name_tag(f.name)
                 rows.append({"url": pero_url(f), "name": pero_rel(f),
                              "at": int(st.st_mtime), "size": st.st_size,
-                             "from": "pero", **png_meta(f)})
+                             "from": "pero", "tag": tag, "no": no,
+                             **png_meta(f)})
             rows.sort(key=lambda r: -r["at"])
             return self._json({"items": rows})
         if self.path.startswith("/pero/"):
@@ -1880,6 +1898,14 @@ def selftest():
         assert pero_images() == [], "없는 폴더인데 바깥 것을 끌어왔다"
     finally:
         PERO = _po
+
+    # 꼬리표 뽑기 — `A_001` 만 잡고, 정리 안 된 이름은 빈 값
+    assert name_tag("A_001.png") == ("A", 1)
+    assert name_tag("z/output/멀티/탭/세트/B_042.png") == ("B", 42)
+    assert name_tag("001_미소_001.png") == ("", 0)   # 앞이 숫자면 꼬리표가 아니다
+    assert name_tag("a1b2c3.png") == ("", 0)         # 해시 이름(올린 그림)
+    assert name_tag("A_1.png") == ("", 0)            # 자릿수가 다르면 아니다
+    assert name_tag("A_0012.png") == ("", 0)
 
     # 페로픽스 것(이름에 폴더가 붙는다)은 지우면 안 된다 — 남의 폴더다
     assert _is_pero_name("z/output/멀티/a.png")

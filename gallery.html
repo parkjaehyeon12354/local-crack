@@ -36,7 +36,8 @@ button{font-family:inherit;cursor:pointer;}
 .tools{display:flex;align-items:center;gap:14px;margin-bottom:16px;
   font-size:13px;color:#9a9a9a;flex-wrap:wrap;}
 .tools b{color:#ddd;}
-.tools input[type=search]{width:auto;flex:1;min-width:120px;max-width:320px;}
+.tools input[type=search]{width:auto;flex:1;min-width:120px;max-width:280px;}
+.tools select{width:auto;padding:7px 9px;font-size:12px;}
 /* 폰에서는 제목이 두 줄로 깨지고 「크게」가 화면 밖으로 밀린다 */
 @media(max-width:520px){
   .head{flex-wrap:wrap;gap:4px;}
@@ -113,6 +114,12 @@ button{font-family:inherit;cursor:pointer;}
   <div class="tools">
     <span><b id="gn">0</b>장</span>
     <input id="q" type="search" placeholder="프롬프트로 찾기">
+    <select id="tag"><option value="">전체</option></select>
+    <select id="sort">
+      <option value="asc">이름 오름차순</option>
+      <option value="desc">이름 내림차순</option>
+      <option value="new">새로 만든 것부터</option>
+    </select>
     <button id="up">그림 올리기</button>
     <input id="file" type="file" accept="image/*" multiple hidden>
     <label><input type="checkbox" id="gbig"> 크게</label>
@@ -153,9 +160,23 @@ function when(sec) {
          ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
+// 정리된 것(A_001)이 먼저, 나머지는 뒤로. 뒤엣것끼리는 늘 새것부터 —
+// 이름 순서가 없는 것들이라 이름으로 줄 세울 근거가 없다.
+function order(a, b, dir) {
+  if (!!a.tag !== !!b.tag) return a.tag ? -1 : 1;
+  if (!a.tag) return b.at - a.at;
+  if (a.tag !== b.tag) return dir * a.tag.localeCompare(b.tag);
+  return dir * (a.no - b.no);
+}
 function draw() {
   const q = $('q').value.trim().toLowerCase();
-  shown = q ? all.filter(m => String(m.prompt || '').toLowerCase().includes(q)) : all;
+  const tag = $('tag').value;
+  const sort = $('sort').value;
+  shown = all.filter(m =>
+    (!q || String(m.prompt || '').toLowerCase().includes(q)) &&
+    (!tag || (tag === '·' ? !m.tag : m.tag === tag)));
+  shown = sort === 'new' ? shown.slice().sort((a, b) => b.at - a.at)
+                         : shown.slice().sort((a, b) => order(a, b, sort === 'desc' ? -1 : 1));
   $('gn').textContent = shown.length;
   if (!shown.length) {
     $('grid').innerHTML = '<div class="gempty">' +
@@ -163,8 +184,9 @@ function draw() {
     return;
   }
   $('grid').innerHTML = shown.map((m, i) => {
-    const cap = m.prompt ? esc(String(m.prompt).slice(0, 70))
-                         : (m.seed ? 'seed ' + m.seed : '올린 그림');
+    const cap = m.tag ? m.tag + ' ' + String(m.no).padStart(3, '0')
+              : m.prompt ? esc(String(m.prompt).slice(0, 70))
+              : (m.seed ? 'seed ' + m.seed : '올린 그림');
     const pero = m.from === 'pero';
     return '<div class="gi" data-i="' + i + '" title="' + esc(m.prompt || '') + '">' +
       '<img src="' + esc(m.url) + '" alt="" loading="lazy">' +
@@ -174,9 +196,23 @@ function draw() {
   }).join('');
 }
 
+function fillTags() {
+  const tags = [...new Set(all.map(m => m.tag).filter(Boolean))].sort();
+  const has = all.some(m => !m.tag);
+  // ★고르고 있던 값을 select 에서 읽으면 안 된다 — 새로고침 직후에는 아직
+  //   option 이 없어 저장값을 넣어도 빈 값이 된다(실측: 필터가 매번 풀렸다).
+  //   저장해 둔 쪽을 본다.
+  const cur = localStorage.getItem('crack.galtag') || '';
+  $('tag').innerHTML = '<option value="">전체</option>' +
+    tags.map(t => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('') +
+    (has ? '<option value="·">정리 안 됨</option>' : '');
+  // 고르고 있던 것이 사라졌으면 전체로 (빈 화면에 갇히지 않게)
+  $('tag').value = [...$('tag').options].some(o => o.value === cur) ? cur : '';
+}
 async function load() {
   try { all = (await (await fetch('/api/gallery')).json()).items || []; }
   catch (e) { all = []; }
+  fillTags();
   draw();
 }
 
@@ -186,6 +222,7 @@ function open_(i) {
   const m = shown[i];
   $('vimg').src = m.url;
   const bits = [];
+  if (m.tag) bits.push(m.tag + ' ' + String(m.no).padStart(3, '0'));
   if (m.seed) bits.push('seed ' + m.seed);
   if (m.w && m.h) bits.push(m.w + '×' + m.h);
   if (m.steps) bits.push(m.steps + ' 스텝');
@@ -225,6 +262,15 @@ async function remove(name) {
 }
 
 $('q').addEventListener('input', draw);
+// 정렬은 option 이 붙박이라 바로 되살린다. 꼬리표는 목록을 받은 뒤라 fillTags 가 맡는다.
+{
+  const v = localStorage.getItem('crack.galsort');
+  if (v) $('sort').value = v;
+}
+for (const id of ['tag', 'sort']) $(id).addEventListener('change', () => {
+  localStorage.setItem('crack.gal' + id, $(id).value);
+  draw();
+});
 $('gbig').addEventListener('change', e => {
   $('grid').classList.toggle('big', e.target.checked);
   localStorage.setItem('crack.galBig', e.target.checked ? '1' : '');
