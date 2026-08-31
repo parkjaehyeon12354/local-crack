@@ -30,18 +30,110 @@ from pathlib import Path
 #   Linux:    CRACK_DATA=~/크랙데이터 python3 server.py
 ROOT = Path(__file__).parent
 DATA = Path(os.environ.get("CRACK_DATA") or ROOT / "data").expanduser()
-DRAFTS = DATA / "drafts"
-CHATS = DATA / "chats"
-BACKUPS = DATA / "backups"
-PROVIDERS = DATA / "providers.json"   # 손으로 추가한 제공사 (키는 여기 안 들어간다)
-PERSONAS = DATA / "personas.json"     # 대화 프로필 목록
-IMAGES = DATA / "images"              # 올린 그림. 파일로 둔다 — base64 로
-                                      # 스토리 JSON 에 넣으면 500장에 터진다
+# 저장 키. 'drafts/abc.json' 처럼 슬래시로 쓴 문자열이고, 실제 자리는
+# store 가 정한다 — 디스크가 없는 곳(Azure Functions)에 올릴 때
+# 이 파일에서 고칠 곳이 store 한 군데뿐이도록.
+DRAFTS = "drafts"
+CHATS = "chats"
+BACKUPS = "backups"
+PROVIDERS = "providers.json"   # 손으로 추가한 제공사 (키는 여기 안 들어간다)
+PERSONAS = "personas.json"     # 대화 프로필 목록
+IMAGES = "images"              # 올린 그림. 파일로 둔다 — base64 로
+                               # 스토리 JSON 에 넣으면 500장에 터진다
 MAX_DRAFTS = 0  # 0 = 무제한. 지우는 건 사용자가 정한다
 MAX_CHATS = 0
 KEEP_BACKUPS = 14  # 하루 1개씩 이만큼 보관
 SCAN_TURNS = 4  # 최근 몇 턴을 키워드 스캔할지
 EVENT_EVERY = 20  # 몇 턴마다 사건 기록을 남길지
+
+
+# ── 저장 계층 ────────────────────────────────────────────────
+# 파일을 만지는 곳은 여기 하나. 나머지 코드는 'drafts/abc.json' 같은
+# 키만 안다. 디스크가 없는 데(Azure Functions)로 옮길 때 갈아끼울 자리가
+# 이 클래스 하나가 되도록 — 라우트마다 Path 를 조립하면 그게 안 된다.
+class LocalStore:
+    """키 하나 = 파일 하나. root 밑을 절대 벗어나지 않는다."""
+
+    def __init__(self, root):
+        self.root = Path(root)
+
+    def _p(self, key):
+        # ★키에 '..' 이 섞이면 root 밖 파일을 읽고 지운다. 조각마다 거른다.
+        parts = [s for s in str(key).split("/") if s not in ("", ".", "..")]
+        return self.root.joinpath(*parts)
+
+    def get_bytes(self, key):
+        """없으면 None. 없는 것과 빈 파일을 구분해야 하는 곳이 있다."""
+        try:
+            return self._p(key).read_bytes()
+        except OSError:
+            return None
+
+    def put_bytes(self, key, blob, private=False):
+        """임시파일에 쓰고 교체 — 쓰는 도중 죽어도 기존 파일이 안 깨진다."""
+        p = self._p(key)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name("." + p.name + ".tmp")
+        tmp.write_bytes(blob)
+        tmp.replace(p)
+        if private:
+            # 키가 들어있는 파일이다 — 소유자만 읽게 한다
+            # ponytail: 평문 저장. 127.0.0.1 단일 사용자 도구라 이 선까지.
+            #           여럿이 쓰게 되면 OS 키체인으로 옮긴다.
+            try:
+                os.chmod(p, 0o600)
+            except OSError:
+                pass
+
+    def get_json(self, key, default=None):
+        """없거나 깨졌으면 default. 키 하나 때문에 서버가 죽으면 안 된다."""
+        b = self.get_bytes(key)
+        if b is None:
+            return default
+        try:
+            return json.loads(b.decode("utf-8"))
+        except Exception:
+            return default
+
+    def put_json(self, key, obj, private=False, indent=2):
+        self.put_bytes(key, json.dumps(obj, ensure_ascii=False,
+                                       indent=indent).encode("utf-8"),
+                       private=private)
+
+    def list_keys(self, prefix=""):
+        """prefix 로 시작하는 키들. 숨김(.)은 뺀다 — 쓰다 만 임시파일이다."""
+        base = self._p(prefix) if prefix else self.root
+        if not base.is_dir():
+            return []
+        out = []
+        for f in base.iterdir():
+            if f.name.startswith(".") or not f.is_file():
+                continue
+            out.append(f"{prefix}/{f.name}" if prefix else f.name)
+        return sorted(out)
+
+    def exists(self, key):
+        return self._p(key).is_file()
+
+    def delete(self, key):
+        self._p(key).unlink(missing_ok=True)
+
+    def stat(self, key):
+        """(수정시각, 크기). 없으면 None — 갤러리 목록에만 쓴다."""
+        try:
+            st = self._p(key).stat()
+        except OSError:
+            return None
+        return int(st.st_mtime), st.st_size
+
+    def local_path(self, key):
+        """★로컬 전용 탈출구. CLI 에 파일 경로를 넘겨야 할 때만 쓴다.
+        ponytail: Blob 구현에서는 임시파일로 내려받아야 한다."""
+        return self._p(key)
+
+
+# 모든 접근이 지나는 단 하나의 객체. 나중에 Blob 을 끼울 자리도 여기.
+store = LocalStore(DATA)
 
 # ── 주입 규칙 ────────────────────────────────────────────────
 # 프롬프트는 매 턴 항상. 키워드북 노트는 키워드가 최근 SCAN_TURNS 턴에
@@ -200,15 +292,15 @@ def pero_url(f):
     return "/pero/" + urllib.parse.quote(pero_rel(f))
 
 
-def png_meta(f):
-    """PNG 안에 박힌 생성 정보를 꺼낸다.
+def png_meta(b):
+    """PNG 안에 박힌 생성 정보를 꺼낸다. 인자는 그림 바이트(없으면 None).
 
     NovelAI 가 프롬프트·시드·설정을 tEXt 청크에 넣어 준다. 그래서 갤러리는
     따로 기록을 들 필요가 없다 — 그림 자체가 기록이다. 올린 그림에는
     청크가 없으니 빈 dict 가 나온다.
+    ★파일이 아니라 바이트를 받는다 — 읽는 일은 store 가 한다.
     """
     try:
-        b = f.read_bytes()
         if b[:8] != b"\x89PNG\r\n\x1a\n":
             return {}
         out, i = {}, 8
@@ -241,12 +333,9 @@ def save_image(blob):
         raise ValueError("8MB 까지만 올릴 수 있어요")
     ext, _ = kind
     name = hashlib.sha256(blob).hexdigest()[:16] + ext
-    IMAGES.mkdir(parents=True, exist_ok=True)
-    dst = IMAGES / name
-    if not dst.exists():
-        tmp = IMAGES / f".{name}.tmp"
-        tmp.write_bytes(blob)
-        tmp.replace(dst)
+    key = f"{IMAGES}/{name}"
+    if not store.exists(key):
+        store.put_bytes(key, blob)
     return name
 
 
@@ -417,7 +506,7 @@ def build_system(story, history=None, user_input="", persona="", usernote="",
 # 그 다음 각 제공사의 /v1/models 를 실제로 물어 모델을 통째로 가져온다.
 # 실패하면 숨기지 않고 이유를 같이 돌려준다(키 오타를 눈으로 봐야 하므로).
 HERMES = Path.home() / ".hermes"
-CACHE = DATA / "models-cache.json"
+CACHE = "models-cache.json"
 
 # 키 이름 → 엔드포인트. 이것만 있으면 .env 에 키를 넣는 순간 자동으로 붙는다.
 # 여기 없는 제공사는 config.yaml 의 custom_providers 로 등록하면 된다.
@@ -473,29 +562,14 @@ def hermes_ok():
     return (HERMES / ".env").exists() or (HERMES / "config.yaml").exists()
 
 
-def load_list(path):
+def load_list(key):
     """JSON 배열 파일 하나. 없거나 깨졌으면 빈 목록."""
-    try:
-        d = json.loads(path.read_text(encoding="utf-8"))
-        return d if isinstance(d, list) else []
-    except Exception:
-        return []
+    d = store.get_json(key, [])
+    return d if isinstance(d, list) else []
 
 
-def save_list(path, items, private=False):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2),
-                   encoding="utf-8")
-    tmp.replace(path)
-    if private:
-        # 키가 들어있는 파일이다 — 소유자만 읽게 한다
-        # ponytail: 평문 저장. 127.0.0.1 단일 사용자 도구라 이 선까지.
-        #           여럿이 쓰게 되면 OS 키체인으로 옮긴다.
-        try:
-            os.chmod(path, 0o600)
-        except Exception:
-            pass
+def save_list(key, items, private=False):
+    store.put_json(key, items, private=private)
 
 
 def load_providers():
@@ -597,7 +671,7 @@ def _claude_models():
     """CLI 는 목록 API 가 없다. Hermes 캐시 + claude 응답을 합친다."""
     ids = list(_hermes_cached("anthropic"))
     try:
-        c = json.loads(CACHE.read_text(encoding="utf-8"))
+        c = store.get_json(CACHE) or {}
         if time.time() - c.get("at", 0) < 7 * 86400:
             ids += [m["id"] for m in c.get("models", [])]
         else:
@@ -611,10 +685,9 @@ def _claude_models():
             fresh = []
         ids += fresh
         if fresh:
-            CACHE.parent.mkdir(parents=True, exist_ok=True)
-            CACHE.write_text(json.dumps(
-                {"at": time.time(), "models": [{"id": i} for i in fresh]},
-                ensure_ascii=False), encoding="utf-8")
+            store.put_json(CACHE, {"at": time.time(),
+                                   "models": [{"id": i} for i in fresh]},
+                           indent=None)
     return [{"id": i, "name": i} for i in dict.fromkeys(ids)]
 
 
@@ -622,18 +695,16 @@ def _claude_models():
 AGY = shutil.which("agy") or next(
     (str(p) for p in (Path("/mnt/d/agy/bin/agy"),
                       Path.home() / ".local/bin/agy") if p.is_file()), "")
-AGY_CACHE = DATA / "agy-models.json"
-AGY_SANDBOX = DATA / "agy-run"      # 코딩 에이전트가 뒤질 빈 작업 폴더
+AGY_CACHE = "agy-models.json"
+AGY_SANDBOX = DATA / "agy-run"      # 코딩 에이전트가 뒤질 빈 작업 폴더 (로컬 전용)
 
 
 def _agy_models():
     """`agy models` 는 '아이디<탭>표시이름' 을 뱉는다. 로그인 안 됐으면 빈 목록."""
-    try:
-        c = json.loads(AGY_CACHE.read_text(encoding="utf-8"))
-        if time.time() - c.get("at", 0) < 7 * 86400 and c.get("models"):
-            return c["models"]
-    except Exception:
-        pass
+    c = store.get_json(AGY_CACHE) or {}
+    if isinstance(c, dict) and time.time() - c.get("at", 0) < 7 * 86400 \
+            and c.get("models"):
+        return c["models"]
     try:
         r = subprocess.run([AGY, "models"], capture_output=True, text=True,
                            timeout=120)
@@ -649,9 +720,8 @@ def _agy_models():
         if mid and nm:
             out.append({"id": mid, "name": nm})
     if out:
-        AGY_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        AGY_CACHE.write_text(json.dumps({"at": time.time(), "models": out},
-                                        ensure_ascii=False), encoding="utf-8")
+        store.put_json(AGY_CACHE, {"at": time.time(), "models": out},
+                       indent=None)
     return out
 
 
@@ -990,10 +1060,11 @@ def name_image(model_id, blob, mime):
     if p.get("kind") == "agy":
         # CLI 는 파일 경로로 받는다. 이미 저장된 그림을 그대로 가리킨다.
         fn = save_image(blob)
-        run_dir = DATA / "agy-run"
-        run_dir.mkdir(exist_ok=True)
+        run_dir = AGY_SANDBOX
+        run_dir.mkdir(parents=True, exist_ok=True)
         r = subprocess.run(
-            [AGY, "-p", NAME_PROMPT + "\n\n@" + str(IMAGES / fn),
+            [AGY, "-p", NAME_PROMPT + "\n\n@"
+             + str(store.local_path(f"{IMAGES}/{fn}")),
              "--model", name, "--output-format", "text",
              "--dangerously-skip-permissions"],
             capture_output=True, text=True, timeout=180, cwd=str(run_dir))
@@ -1054,7 +1125,7 @@ def lan_ips():
     return [ip for ip in out if not ip.startswith("127.")]
 
 
-NAI_FILE = DATA / "novelai.json"      # 페이지에서 넣은 키. .env 가 없을 때만 쓴다
+NAI_FILE = "novelai.json"      # 페이지에서 넣은 키. .env 가 없을 때만 쓴다
 
 
 def nai_key():
@@ -1063,21 +1134,16 @@ def nai_key():
     k = _env_all().get(NAI_KEY, "")
     if k:
         return k, "env"
-    if NAI_FILE.exists():
-        try:
-            return json.loads(NAI_FILE.read_text(encoding="utf-8")).get("key", ""), "file"
-        except Exception:
-            pass
+    if store.exists(NAI_FILE):
+        d = store.get_json(NAI_FILE)
+        if isinstance(d, dict):
+            return d.get("key", ""), "file"
     return "", ""
 
 
 def nai_save_key(key):
     """키를 파일에 둔다. providers.json 과 같은 취급 — 본인만 읽는다."""
-    NAI_FILE.write_text(json.dumps({"key": key.strip()}), encoding="utf-8")
-    try:
-        os.chmod(NAI_FILE, 0o600)
-    except Exception:
-        pass
+    store.put_json(NAI_FILE, {"key": key.strip()}, private=True, indent=None)
 
 
 def nai_generate(prompt, uc="", seed=0, model="nai-diffusion-4-5-full",
@@ -1243,12 +1309,14 @@ def condense(model_id, old_msgs, memory="", effort=""):
 # ── 저장 (임시저장 draft + 채팅 세션 chat, 같은 코드) ─────────
 def list_items(folder, limit):
     out = []
-    for f in folder.glob("*.json"):
-        try:
-            d = json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
+    for k in store.list_keys(folder):
+        if not k.endswith(".json"):
             continue
-        out.append({"id": f.stem, "title": d.get("title") or "제목 없음",
+        d = store.get_json(k)
+        if not isinstance(d, dict):
+            continue
+        out.append({"id": k.rsplit("/", 1)[-1][:-len(".json")],
+                    "title": d.get("title") or "제목 없음",
                     "saved_at": d.get("saved_at", 0),
                     "image": d.get("image", ""),
                     "subtitle": d.get("subtitle", ""),
@@ -1257,40 +1325,40 @@ def list_items(folder, limit):
 
 
 def save_item(folder, data, limit):
-    folder.mkdir(parents=True, exist_ok=True)
     did = data.get("id") or uuid.uuid4().hex[:8]
     data["id"] = did
     data["saved_at"] = time.time()
-    # 임시파일에 쓰고 교체한다 — 쓰는 도중 죽어도 기존 파일이 안 깨진다
-    dst = folder / f"{did}.json"
-    tmp = folder / f".{did}.tmp"
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                   encoding="utf-8")
-    tmp.replace(dst)
+    store.put_json(f"{folder}/{did}.json", data)
     if limit:   # 0 이면 무제한 — 오래된 것을 지우지 않는다
         for old in list_items(folder, limit)[limit:]:
-            (folder / f"{old['id']}.json").unlink(missing_ok=True)
+            store.delete(f"{folder}/{old['id']}.json")
     backup()
     return data
 
 
 def backup():
     """하루에 한 번, 첫 저장 때 zip 하나. 이미 오늘 것이 있으면 안 만든다."""
-    dst = BACKUPS / f"crack-{date.today().isoformat()}.zip"
-    if dst.exists():
+    key = f"{BACKUPS}/crack-{date.today().isoformat()}.zip"
+    if store.exists(key):
         return None
-    BACKUPS.mkdir(parents=True, exist_ok=True)
     # backups 를 포함하면 어제 zip 이 오늘 zip 에 들어가 눈덩이가 된다.
     # drafts / chats 만 담는다.
-    tmp = dst.with_suffix(".tmp")
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+    # ★메모리에서 만든다 — 임시파일을 쓰면 디스크 없는 곳에서 못 돈다.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for folder in (DRAFTS, CHATS):
-            for f in sorted(folder.glob("*.json")):
-                z.write(f, f"{folder.name}/{f.name}")
-    tmp.replace(dst)
-    for f in sorted(BACKUPS.glob("crack-*.zip"))[:-KEEP_BACKUPS]:
-        f.unlink(missing_ok=True)
-    return dst
+            for k in store.list_keys(folder):
+                if not k.endswith(".json"):
+                    continue
+                b = store.get_bytes(k)
+                if b is not None:
+                    z.writestr(f"{folder}/{k.rsplit('/', 1)[-1]}", b)
+    store.put_bytes(key, buf.getvalue())
+    olds = [k for k in store.list_keys(BACKUPS)
+            if k.rsplit("/", 1)[-1].startswith("crack-") and k.endswith(".zip")]
+    for old in sorted(olds)[:-KEEP_BACKUPS]:
+        store.delete(old)
+    return key
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -1318,15 +1386,16 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/gallery":
             # 새 것부터. 파일 자체가 기록이라 따로 목록을 안 든다.
             rows = []
-            for f in IMAGES.glob("*"):
-                if f.name.startswith(".") or not f.is_file():
+            for k in store.list_keys(IMAGES):
+                st = store.stat(k)
+                if not st:
                     continue
-                st = f.stat()
-                tag, no = name_tag(f.name)
-                rows.append({"url": "/img/" + f.name, "name": f.name,
-                             "at": int(st.st_mtime), "size": st.st_size,
+                nm = k.rsplit("/", 1)[-1]
+                tag, no = name_tag(nm)
+                rows.append({"url": "/img/" + nm, "name": nm,
+                             "at": st[0], "size": st[1],
                              "from": "crack", "tag": tag, "no": no,
-                             **png_meta(f)})
+                             **png_meta(store.get_bytes(k) or b"")})
             # 페로픽스 것은 **읽기만** 한다 — 복사하면 같은 그림이 두 벌이 되고
             # 한쪽을 지워도 다른 쪽이 남는다. 원본 폴더가 그대로 진실이다.
             for f in pero_images():
@@ -1335,7 +1404,7 @@ class Handler(SimpleHTTPRequestHandler):
                 rows.append({"url": pero_url(f), "name": pero_rel(f),
                              "at": int(st.st_mtime), "size": st.st_size,
                              "from": "pero", "tag": tag, "no": no,
-                             **png_meta(f)})
+                             **png_meta(f.read_bytes())})
             rows.sort(key=lambda r: -r["at"])
             return self._json({"items": rows})
         if self.path.startswith("/pero/"):
@@ -1361,13 +1430,10 @@ class Handler(SimpleHTTPRequestHandler):
             # 데이터 폴더는 소스 밖에 있을 수 있어 기본 정적 서빙이 못 찾는다.
             # 이름만 취해 폴더 밖으로 못 나가게 한다.
             name = os.path.basename(urllib.parse.unquote(self.path[5:]))
-            f = IMAGES / name
-            kind = None
-            if name and f.is_file():
-                kind = sniff_image(f.read_bytes()[:16])
+            body = store.get_bytes(f"{IMAGES}/{name}") if name else None
+            kind = sniff_image(body[:16]) if body else None
             if not kind:
                 return self._json({"error": "없는 이미지"}, 404)
-            body = f.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", kind[1])
             self.send_header("Content-Length", str(len(body)))
@@ -1406,10 +1472,10 @@ class Handler(SimpleHTTPRequestHandler):
             folder, limit = kind
             if not item:
                 return self._json(list_items(folder, limit))
-            f = folder / f"{item}.json"
-            if not f.exists():
+            d = store.get_json(f"{folder}/{item}.json")
+            if d is None:
                 return self._json({"error": "없음"}, 404)
-            return self._json(json.loads(f.read_text(encoding="utf-8")))
+            return self._json(d)
         return super().do_GET()
 
     def do_POST(self):
@@ -1434,20 +1500,18 @@ class Handler(SimpleHTTPRequestHandler):
                     {"error": "페로픽스 그림은 페로픽스에서 지워 주세요"}, 400)
             # 이름만 받는다. 경로를 그대로 믿으면 폴더 밖 파일을 지운다.
             fn = os.path.basename(str(data.get("name") or ""))
-            f = IMAGES / fn
-            if not fn or not f.is_file():
+            if not fn or not store.exists(f"{IMAGES}/{fn}"):
                 return self._json({"error": "그림을 찾지 못했어요"}, 404)
-            f.unlink()
+            store.delete(f"{IMAGES}/{fn}")
             return self._json({"ok": True})
         if self.path == "/api/name-image":
             # 이미 올라간 그림을 모델이 보고 이름을 짓는다. 파일은 다시
             # 받지 않는다 — url 로 가리키기만 하면 된다.
             fn = os.path.basename(str(data.get("url") or ""))
-            f = IMAGES / fn
-            if not fn or not f.exists():
+            blob = store.get_bytes(f"{IMAGES}/{fn}") if fn else None
+            if blob is None:
                 return self._json({"error": "그림을 찾지 못했어요"}, 404)
             try:
-                blob = f.read_bytes()
                 kind = sniff_image(blob)      # (확장자, mime)
                 if not kind:
                     raise ValueError("그림이 아니에요")
@@ -1655,7 +1719,7 @@ class Handler(SimpleHTTPRequestHandler):
         (kind, item) = self._kind()
         if not kind or not item:
             return self._json({"error": "없음"}, 404)
-        (kind[0] / f"{item}.json").unlink(missing_ok=True)
+        store.delete(f"{kind[0]}/{item}.json")
         return self._json({"ok": True})
 
     def log_message(self, *a):
@@ -1663,7 +1727,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def selftest():
-    global NAI_FILE
+    global NAI_FILE, store
     story = {
         "prompt": "P",
         "notes": [
@@ -1859,18 +1923,19 @@ def selftest():
             + _chunk(b"IDAT", b"\x00" * 40)
             + _chunk(b"tEXt", b"Comment\x00" + _cm.encode())
             + _chunk(b"IEND", b""))
-    _f = IMAGES / "_t_meta.png"
-    IMAGES.mkdir(parents=True, exist_ok=True)
-    _f.write_bytes(_png)
+    _k = f"{IMAGES}/_t_meta.png"
+    store.put_bytes(_k, _png)
     try:
-        _m = png_meta(_f)
+        _m = png_meta(store.get_bytes(_k))
         assert _m["prompt"] == "1girl, rain" and _m["seed"] == 42, _m
         assert _m["w"] == 832 and _m["h"] == 1216, _m
-        assert png_meta(IMAGES / "_nope_.png") == {}      # 없는 파일에 안 죽는다
-        _f.write_bytes(b"not a png at all")
-        assert png_meta(_f) == {}                          # PNG 아니면 빈 값
+        # 없는 키는 빈 값(None)이 오고, png_meta 는 거기서 안 죽는다
+        assert store.get_bytes(f"{IMAGES}/_nope_.png") is None
+        assert png_meta(b"") == {}
+        store.put_bytes(_k, b"not a png at all")
+        assert png_meta(store.get_bytes(_k)) == {}          # PNG 아니면 빈 값
     finally:
-        _f.unlink(missing_ok=True)
+        store.delete(_k)
 
     # 페로픽스 폴더: 하위 폴더까지 훑고, 없으면 조용히 빈 목록
     import tempfile as _tf
@@ -1911,8 +1976,8 @@ def selftest():
     assert _is_pero_name("z/output/멀티/a.png")
     assert not _is_pero_name("abc123.png")
 
-    assert n1.endswith(".png") and (IMAGES / n1).is_file()
-    assert (IMAGES / n1).read_bytes() == png
+    assert n1.endswith(".png") and store.exists(f"{IMAGES}/{n1}")
+    assert store.get_bytes(f"{IMAGES}/{n1}") == png
     assert save_image(png) == n1, "같은 그림은 파일 하나여야 한다"
     assert save_image(png + b"x") != n1
     try:
@@ -1921,7 +1986,7 @@ def selftest():
     except ValueError:
         pass
     for junk in (n1, save_image(png + b"x")):
-        (IMAGES / junk).unlink(missing_ok=True)
+        store.delete(f"{IMAGES}/{junk}")
     # 프롬프트에 목록이 들어가고, 없으면 블록째 안 들어간다
     igot = build_system(dict(ps, images=ist["images"]), [], "")
     assert "{img::번호}" in igot and "1=칸나 무표정" in igot, igot
@@ -1964,7 +2029,7 @@ def selftest():
     assert looks_refused("그런 내용은 제공할 수 없습니다. 살아있는 사람을 해부하는 행위는")
 
     # NovelAI 키: .env 가 언제나 이긴다. 파일이 이기면 옛 키가 조용히 산다.
-    _real_nai, NAI_FILE = NAI_FILE, NAI_FILE.parent / "_t_novelai.json"
+    _real_nai, NAI_FILE = NAI_FILE, "_t_novelai.json"
     _real_env_all = globals()["_env_all"]
     _fake_env = {}
     globals()["_env_all"] = lambda: _fake_env
@@ -1974,14 +2039,13 @@ def selftest():
         assert nai_key() == ("env-key", "env"), nai_key()
         _fake_env.pop(NAI_KEY)
         assert nai_key() == ("file-key", "file"), nai_key()
-        NAI_FILE.unlink()
+        store.delete(NAI_FILE)
         assert nai_key() == ("", ""), nai_key()
         # 파일이 깨져 있어도 터지지 않는다 — 키 하나에 서버가 죽으면 안 된다
-        NAI_FILE.write_text("{ 망가짐", encoding="utf-8")
+        store.put_bytes(NAI_FILE, "{ 망가짐".encode("utf-8"))
         assert nai_key() == ("", ""), nai_key()
     finally:
-        if NAI_FILE.exists():
-            NAI_FILE.unlink()
+        store.delete(NAI_FILE)
         NAI_FILE = _real_nai
         globals()["_env_all"] = _real_env_all
 
@@ -2139,39 +2203,64 @@ def selftest():
     # 탭 없는 안내문이 모델로 새어들면 안 된다 (구분자는 탭뿐)
     assert _parse("Fetching available models...\nSome notice line\n") == []
 
-    # 저장 → 디스크에서 그대로 읽히는가 + 백업이 도는가
+    # 저장 → 저장 계층에서 그대로 읽히는가 + 백업이 도는가
     import tempfile
-    global DATA, DRAFTS, CHATS, BACKUPS
+    _real_store = store
     with tempfile.TemporaryDirectory() as td:
-        DATA = Path(td); DRAFTS = DATA / "drafts"
-        CHATS = DATA / "chats"; BACKUPS = DATA / "backups"
+        store = LocalStore(td)
+        # 저장 계층 자체 가드: 왕복 · 접두 필터 · 없는 키
+        store.put_bytes("t/a.bin", b"\x00\xff!")
+        assert store.get_bytes("t/a.bin") == b"\x00\xff!", "바이트 왕복이 깨졌다"
+        store.put_json("t/b.json", {"ㄱ": 1})
+        assert store.get_json("t/b.json") == {"ㄱ": 1}, "JSON 왕복이 깨졌다"
+        store.put_bytes("u/c.bin", b"z")
+        assert store.list_keys("t") == ["t/a.bin", "t/b.json"], store.list_keys("t")
+        assert store.list_keys("u") == ["u/c.bin"], "접두가 다른 것까지 끌어왔다"
+        # 없는 키는 빈 값. 예외를 던지면 라우트마다 try 를 달아야 한다
+        assert store.get_bytes("t/없다") is None
+        assert store.get_json("t/없다") is None and store.get_json("t/없다", []) == []
+        assert store.list_keys("없는폴더") == []
+        assert not store.exists("t/없다")
+        store.delete("t/없다")            # 없는 것을 지워도 안 터진다
+        store.delete("t/a.bin")
+        assert not store.exists("t/a.bin") and store.get_bytes("t/a.bin") is None
+        # 깨진 JSON 도 기본값으로 떨어진다 — 파일 하나에 서버가 죽으면 안 된다
+        store.put_bytes("t/bad.json", b"{ \xea\xb0\x81")
+        assert store.get_json("t/bad.json", []) == []
+        # ★키에 '..' 을 섞어도 뿌리 밖으로 못 나간다
+        store.put_bytes("../탈출.txt", b"x")
+        assert store.exists("탈출.txt") and not (Path(td).parent / "탈출.txt").exists()
+        for _k2 in ("t/b.json", "u/c.bin", "t/bad.json", "탈출.txt"):
+            store.delete(_k2)
+
         save_item(DRAFTS, {"title": "가", "prompt": "P"}, 50)
         got = save_item(CHATS, {"title": "나", "preview": "미리"}, MAX_CHATS)
         assert [x["title"] for x in list_items(DRAFTS, 50)] == ["가"]
-        assert (CHATS / f"{got['id']}.json").exists(), "디스크에 실제로 써야 함"
+        assert store.exists(f"{CHATS}/{got['id']}.json"), "실제로 써야 함"
 
         # limit 0 = 무제한. 몇 개를 넣든 하나도 안 지워야 한다
         for i in range(12):
             save_item(CHATS, {"title": f"방{i}"}, MAX_CHATS)
-        assert len(list(CHATS.glob("*.json"))) == 13, "무제한인데 지워졌다"
+        assert len(store.list_keys(CHATS)) == 13, "무제한인데 지워졌다"
 
-        # 삭제하면 파일이 실제로 사라진다
-        (CHATS / f"{got['id']}.json").unlink()
-        assert not (CHATS / f"{got['id']}.json").exists()
+        # 삭제하면 실제로 사라진다
+        store.delete(f"{CHATS}/{got['id']}.json")
+        assert not store.exists(f"{CHATS}/{got['id']}.json")
         assert got["id"] not in [x["id"] for x in list_items(CHATS, MAX_CHATS)]
 
-        zips = list(BACKUPS.glob("crack-*.zip"))
+        zips = [k for k in store.list_keys(BACKUPS) if k.endswith(".zip")]
         assert len(zips) == 1, f"하루 1개여야 함: {zips}"
         save_item(CHATS, {"title": "다"}, MAX_CHATS)   # 같은 날 두 번째 저장
-        assert len(list(BACKUPS.glob("crack-*.zip"))) == 1, "하루 1개만"
+        assert len([k for k in store.list_keys(BACKUPS)
+                    if k.endswith(".zip")]) == 1, "하루 1개만"
 
         # 하루 1개라 첫 zip 은 그 시점 내용만 담는다. 강제로 다시 떠서
         # 두 폴더가 다 들어가는지, 백업이 백업을 삼키지 않는지 본다.
-        zips[0].unlink()
+        store.delete(zips[0])
         # 미끼: backups 폴더도 담으면 이 파일이 zip 안에 들어온다
-        (BACKUPS / "미끼.json").write_text("{}", encoding="utf-8")
+        store.put_json(f"{BACKUPS}/미끼.json", {})
         z2 = backup()
-        with zipfile.ZipFile(z2) as z:
+        with zipfile.ZipFile(io.BytesIO(store.get_bytes(z2))) as z:
             names = z.namelist()
         assert any(n.startswith("drafts/") for n in names), names
         assert any(n.startswith("chats/") for n in names), names
@@ -2179,8 +2268,6 @@ def selftest():
             f"백업이 backups 폴더를 담으면 눈덩이가 된다: {names}"
 
         # 손으로 추가한 제공사: 저장/삭제 왕복 + 키가 discover 로 넘어가는가
-        global PROVIDERS
-        PROVIDERS = DATA / "providers.json"
         assert load_providers() == [], "파일 없으면 빈 목록"
         save_providers([{"id": "손", "name": "손", "url": "https://x/v1",
                          "key": "sk-비밀"}])
@@ -2195,8 +2282,6 @@ def selftest():
             p.get("src") == "manual" for p in discover_providers()), "삭제가 안 먹었다"
 
         # 대화 프로필 목록 파일 왕복 (임시 폴더 안에서)
-        global PERSONAS
-        PERSONAS = DATA / "personas.json"
         assert load_list(PERSONAS) == []
         save_list(PERSONAS, [{"id": "a", "name": "재현", "profile": "20살"}])
         assert [x["name"] for x in load_list(PERSONAS)] == ["재현"]
@@ -2220,6 +2305,7 @@ def selftest():
         # 모르는 호스트도 안 탄다
         assert provider_balance({"url": "https://nope.example/v1",
                                  "key": "k", "key_env": None}) is None
+    store = _real_store          # 임시 폴더를 벗어났으니 원래 자리로
 
     # 모델 카탈로그: 응답이 안 오는 제공사는 목록에서 빠지고 이유가 남아야 한다
     global _catalog, _by_model, _problems
@@ -2266,15 +2352,17 @@ if __name__ == "__main__":
         print("백업:", backup() or "오늘 것이 이미 있음")
     else:
         # 예전 버전은 서버 폴더 바로 밑에 저장했다. 있으면 한 번만 옮긴다.
+        # ★옮기는 쪽은 store 를 지난다 — 새 자리가 디스크가 아닐 수도 있다.
         for old, new in ((ROOT / "drafts", DRAFTS), (ROOT / "chats", CHATS)):
-            if old.exists() and old.resolve() != new.resolve():
-                new.mkdir(parents=True, exist_ok=True)
+            if old.exists() and old.resolve() != store.local_path(new).resolve():
                 for f in old.glob("*.json"):
-                    f.replace(new / f.name)
+                    store.put_bytes(f"{new}/{f.name}", f.read_bytes())
+                    f.unlink()
                 old.rmdir() if not any(old.iterdir()) else None
                 print(f"이전: {old} → {new}")
-        DRAFTS.mkdir(parents=True, exist_ok=True)
-        CHATS.mkdir(parents=True, exist_ok=True)
+        # 빈 폴더라도 만들어 둔다 — 데이터가 어디 앉는지 눈으로 보이게
+        for k in (DRAFTS, CHATS):
+            store.local_path(k).mkdir(parents=True, exist_ok=True)
         print(f"데이터: {DATA}")
         print("Hermes:", "연결됨" if hermes_ok() else "없음 (키 없이 로컬만)")
         print("모델 확인 중…")

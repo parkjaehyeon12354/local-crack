@@ -1,0 +1,146 @@
+/* 폰 화면 (mobile.css)
+ *
+ * ★HTML 을 안 건드리고 CSS 한 장으로만 고친다 — 페이지가 7개인데 구조를 손대면
+ *   PC 화면까지 함께 흔들린다. 여기 있는 것은 전부 폭이 좁을 때만 켜지는 규칙이다.
+ * ★600px 을 경계로 삼는다. 폰 세로(390~430)와 작은 태블릿 세로가 여기 들어오고,
+ *   가로로 눕힌 폰(844)은 PC 배치를 그대로 쓴다 — 그 폭이면 사이드바가 들어간다.
+ */
+@media (max-width: 600px) {
+
+/* ── 공통: 손가락에 맞춘 크기 ───────────────────────────── */
+/* 44px 이 애플·구글이 같이 말하는 최소선이다. 19px 짜리 링크는 못 누른다. */
+.gnav a, .gnav-a a {
+  padding: 11px 4px;
+  font-size: 14px;
+}
+#gbar, .gbar {
+  height: auto;
+  min-height: 46px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+#gbar::-webkit-scrollbar, .gbar::-webkit-scrollbar { display: none; }
+.gnav {
+  gap: 14px;
+  white-space: nowrap;
+}
+
+button, select, input[type=text], input[type=search], input[type=number], input[type=password] {
+  min-height: 42px;
+}
+/* 글자는 16px 미만이면 iOS 가 입력할 때 화면을 확대한다 */
+input, select, textarea { font-size: 16px !important; }
+
+.page { padding: 18px 14px 46px; }
+.head h1 { font-size: 21px; }
+
+/* ── 채팅: 사이드바를 서랍으로 ──────────────────────────── */
+/* 265px 짜리 목록이 390px 화면의 3분의 2를 먹어 본문이 밖으로 밀려났다. */
+#side {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 80;
+  width: 82vw;
+  max-width: 300px;
+  transform: translateX(-100%);
+  transition: transform .2s ease;
+  background: #101010;
+  border-right: 1px solid #262626;
+  padding-top: 54px;
+}
+body.side-on #side { transform: none; }
+/* 서랍을 여는 단추 — HTML 에 없으므로 CSS 로는 못 만든다. JS 가 붙인다.
+ * ★네비 줄 위가 아니라 **그 아래** 둔다. 위에 두면 「스토리」 링크를 덮는다. */
+#sideOpen {
+  display: flex !important;
+  position: fixed;
+  top: 52px; left: 8px;
+  z-index: 82;
+  width: 40px; height: 40px;
+  align-items: center; justify-content: center;
+  background: #171717;
+  border: 1px solid #2c2c2c;
+  border-radius: 10px;
+  color: #ddd;
+  font-size: 17px;
+}
+#sideMask {
+  display: none;
+  position: fixed; inset: 0;
+  z-index: 79;
+  background: rgba(0, 0, 0, .55);
+  /* ★가려진 요소가 탭을 가로채지 않게 — 덮개 자신이 받아야 닫힌다 */
+  touch-action: manipulation;
+}
+body.side-on #sideMask { display: block; }
+
+/* 본문은 폭을 전부 쓴다 */
+#msgs { padding: 14px 14px 14px; max-width: none; }
+#composer { max-width: none; }
+/* 제목·모델 이름·아이콘이 한 줄에 다 안 들어가 서로 겹쳤다.
+ * ★「에피소드」 탭과 구분선은 폰에서 지운다 — 탭이 하나뿐이라 자리만 먹는다. */
+.tabs, .sdiv { display: none !important; }
+.swrap { flex: 1 1 auto; min-width: 0; }
+.sright { flex: none; gap: 4px; }
+#storyBtn { max-width: 100%; min-width: 0; padding: 6px 4px; }
+#storyTitle, #modelName {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;
+}
+#storyTitle { max-width: 30vw; }
+#modelBtn { max-width: 40vw; min-width: 0; font-size: 12px; padding: 7px 9px; }
+#modelName { max-width: 26vw; }
+#personaTag { display: none; }
+
+/* 오른쪽 서랍(설정)도 화면을 넘지 않게 */
+#drawer { width: min(84vw, 290px); top: 0; padding-top: 54px; }
+
+/* ── 빌더: 두 칸을 한 칸으로 ────────────────────────────── */
+/* #form-col 이 800px 고정이라 390px 화면에서 오른쪽 절반이 잘려 나갔다.
+ * ★미리보기(#preview-col)는 폰에서 숨긴다 — 폼과 나란히 둘 자리가 없고,
+ *   좁은 화면에서 세로로 쌓으면 폼이 한참 아래로 밀린다. */
+#form-col {
+  width: 100% !important;
+  flex: 1 1 auto !important;
+  border-right: 0;
+}
+#preview-col { display: none !important; }
+#form-scroll, #form-content { width: 100%; }
+/* 업로드·삭제·생성이 한 줄에 안 들어가 글자가 세로로 깨졌다(「업 로 드」).
+ * 그림 옆이 아니라 **아래**로 내려 가로로 편다. */
+.img-row, .imgbox, .img-wrap { flex-wrap: wrap; }
+.img-btns { width: 100%; flex-wrap: wrap; gap: 6px; }
+.img-btns button { flex: 1 1 30%; white-space: nowrap; min-width: 0; padding: 0 8px; }
+.img-btns button span { white-space: nowrap; }
+.wrap, .cols, .two, .b-wrap { grid-template-columns: 1fr !important; }
+.card, .card-img, .card-body { max-width: 100%; }
+.banner { max-width: 100%; }
+/* 탭 줄은 가로로 넘기게 — 접히면 세로로 길어져 본문이 안 보인다 */
+.tabs, .tabbar, .b-tabs {
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+}
+.tabs::-webkit-scrollbar, .tabbar::-webkit-scrollbar, .b-tabs::-webkit-scrollbar { display: none; }
+
+/* ── 갤러리·이미지 ─────────────────────────────────────── */
+.grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)) !important; }
+.grid.big { grid-template-columns: 1fr !important; }
+.gi .cap { font-size: 11px; padding: 6px; }
+.gi .x { width: 30px; height: 30px; opacity: .9; }
+.tools { gap: 8px; }
+.tools select { flex: 1; min-width: 108px; }
+.tools input[type=search] { max-width: none; }
+/* 체크박스가 13px 이라 누를 수가 없었다 */
+.tools label { min-height: 42px; padding: 0 4px; }
+.tools label input { width: 20px; height: 20px; }
+
+.keybar { flex-wrap: wrap; }
+.keybar input { min-width: 0; }
+.view img { max-height: 52vh; }
+.vbar button { flex: 1 1 44%; }
+.roll img { width: 66px; height: 66px; }
+
+/* ── 모달: 화면을 넘지 않게 ─────────────────────────────── */
+.modal { width: 100%; max-height: 88vh; }
+.mask { padding: 10px; }
+}
