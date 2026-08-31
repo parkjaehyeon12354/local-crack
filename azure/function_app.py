@@ -1,135 +1,123 @@
-"""크랙빌더 이미지 생성 — Azure Functions.
+"""크랙빌더 — Azure Functions 다리.
 
-server.py 의 nai_generate() 를 그대로 옮긴 것. 다른 점 둘:
-  - 그림을 파일이 아니라 Blob 에 넣는다 (Functions 는 디스크가 없다)
-  - 키는 앱 설정(NAI_KEY)에서 읽는다
+★**server.py 를 고쳐 쓰지 않는다.** 그 파일은 `BaseHTTPRequestHandler` 로 도는
+  완성된 서버이고, 여기서는 요청을 그 핸들러에 **그대로 흘려 넣고** 답을 받아
+  Functions 응답으로 옮기기만 한다. 라우트가 늘어도 이 파일은 그대로다.
+
+★왜 화면(HTML)까지 여기서 내주나: 화면과 API 가 **같은 주소**여야
+  `fetch('/api/...')` 를 한 글자도 안 고치고, CORS 설정도 필요 없다.
+  주소가 갈리면 페이지마다 절대 주소를 박아야 한다 (지난 배포에서 그랬다).
+
+★저장은 Blob 이다 — `CRACK_BLOB` 이 있으면 server.py 가 알아서 BlobStore 를 쓴다.
 """
-import base64
-import hashlib
 import io
-import json
 import logging
 import os
-import random
-import zipfile
+import sys
+from pathlib import Path
 
 import azure.functions as func
-from azure.storage.blob import BlobServiceClient, ContentSettings
+
+HERE = Path(__file__).parent
+sys.path.insert(0, str(HERE))
+
+# ★import 하기 전에 켠다 — server.py 는 모듈을 읽는 동안 store 를 정한다.
+os.environ.setdefault("CRACK_DATA", "/tmp/crack")
+
+import server  # noqa: E402
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
+log = logging.getLogger("crack")
 
-NAI_URL = "https://image.novelai.net/ai/generate-image"
-CONTAINER = "images"
-NAI_UC = ("lowres, artistic error, film grain, scan artifacts, worst quality, "
-          "bad quality, jpeg artifacts, very displeasing, chromatic aberration, "
-          "extra digits, fewer digits, bad anatomy, bad hands, watermark, "
-          "signature, logo, text")
-
-# Cloudflare 가 User-Agent 없는 요청을 403 error code: 1010 으로 막는다.
-# 키가 멀쩡해도 그렇다 — 키 문제로 오해하기 딱 좋은 자리라 적어 둔다.
-BROWSER = {
-    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                   "Chrome/131.0.0.0 Safari/537.36"),
-    "Accept": "*/*", "Origin": "https://novelai.net",
-    "Referer": "https://novelai.net/",
-}
+# ★모델 목록은 로컬에서 `main()` 이 기동할 때 채운다. Functions 는 main 을
+#   부르지 않아 목록이 계속 비어 있었다(제공사 0개). 첫 요청에 한 번 채운다.
+_ready = False
 
 
-def _blobs():
-    cs = os.environ["AzureWebJobsStorage"]
-    svc = BlobServiceClient.from_connection_string(cs)
+def _boot():
+    global _ready
+    if _ready:
+        return
+    _ready = True                     # 실패해도 매 요청마다 다시 긁지 않는다
     try:
-        svc.create_container(CONTAINER, public_access="blob")
+        server.refresh_models()
     except Exception:
-        pass                       # 이미 있으면 그만
-    return svc.get_container_client(CONTAINER)
+        log.exception("모델 목록을 못 받았다")
 
 
-def _save(blob, ext=".png"):
-    """내용 해시로 이름을 짓는다 — 같은 그림은 한 번만 올라간다."""
-    name = hashlib.sha256(blob).hexdigest()[:16] + ext
-    c = _blobs()
-    c.upload_blob(name, blob, overwrite=True,
-                  content_settings=ContentSettings(
-                      content_type="image/png",
-                      cache_control="public, max-age=31536000, immutable"))
-    return c.url + "/" + name
+class _Sock:
+    """핸들러가 소켓인 줄 알고 쓰는 가짜 통로.
+
+    ★`BaseHTTPRequestHandler` 는 `rfile`/`wfile` 로만 바깥과 말한다.
+      그 둘을 메모리 버퍼로 바꾸면 소켓 없이도 그대로 돈다.
+    """
+
+    def __init__(self, body):
+        self.rfile = io.BytesIO(body)
+        self.wfile = io.BytesIO()
+
+    def makefile(self, mode, *a, **kw):
+        return self.rfile if "r" in mode else self.wfile
 
 
-def _json(body, code=200):
-    return func.HttpResponse(json.dumps(body, ensure_ascii=False),
-                             status_code=code, mimetype="application/json")
+class _Handler(server.Handler):
+    """소켓 대신 버퍼에 답을 쓴다. 로직은 손대지 않는다."""
+
+    def __init__(self, req_line, headers, body):
+        self._sock = _Sock(body)
+        self.rfile = self._sock.rfile
+        self.wfile = self._sock.wfile
+        self.requestline = req_line
+        self.client_address = ("127.0.0.1", 0)
+        self.server = None
+        self.command, self.path, self.request_version = req_line.split(" ")
+        self.headers = headers
+        self.close_connection = True
+        # ★부모 __init__ 을 부르지 않는다 — 그쪽이 소켓을 받아 곧바로 처리를 시작한다.
+        self.directory = str(HERE)
+
+    def log_message(self, fmt, *a):
+        log.info(fmt, *a)
+
+    def send_response(self, code, message=None):
+        # 날짜·서버 머리글은 Functions 가 붙인다
+        self.send_response_only(code, message)
 
 
-@app.route(route="nai", methods=["POST"])
-def nai(req: func.HttpRequest) -> func.HttpResponse:
-    import urllib.error
-    import urllib.request
+def _run(req: func.HttpRequest) -> func.HttpResponse:
+    import email.parser
+    _boot()
 
-    key = os.environ.get("NAI_KEY", "")
-    if not key:
-        return _json({"error": "NAI_KEY 앱 설정이 비어 있어요"}, 400)
+    body = req.get_body() or b""
+    path = "/" + req.url.split("/", 3)[-1] if "://" in req.url else req.url
+    if not path.startswith("/"):
+        path = "/" + path
+
+    raw = "\r\n".join(f"{k}: {v}" for k, v in req.headers.items()) + "\r\n\r\n"
+    headers = email.parser.Parser().parsestr(raw)
+
+    h = _Handler(f"{req.method} {path} HTTP/1.1", headers, body)
     try:
-        data = req.get_json()
-    except ValueError:
-        return _json({"error": "본문이 JSON 이 아니에요"}, 400)
+        getattr(h, "do_" + req.method)()
+    except AttributeError:
+        return func.HttpResponse("Method Not Allowed", status_code=405)
+    except Exception as e:                      # 한 요청이 죽어도 앱은 살아야 한다
+        log.exception("handler failed")
+        return func.HttpResponse(f"서버 오류: {e}", status_code=500)
 
-    prompt = str(data.get("prompt") or "").strip()
-    if not prompt:
-        return _json({"error": "프롬프트를 적어 주세요"}, 400)
-    uc = str(data.get("uc") or "").strip() or NAI_UC
-    seed = int(data.get("seed") or 0) or random.randint(1, 2 ** 32 - 1)
-
-    body = {"input": prompt,
-            "model": str(data.get("model") or "nai-diffusion-4-5-full"),
-            "action": "generate",
-            "parameters": {
-                "params_version": 3,
-                "width": int(data.get("width") or 1216),
-                "height": int(data.get("height") or 832),
-                "scale": float(data.get("scale") or 7),
-                "cfg_rescale": 0.74, "uncond_scale": 0,
-                "sampler": "k_euler_ancestral", "noise_schedule": "karras",
-                "steps": int(data.get("steps") or 28),
-                "n_samples": 1, "seed": seed,
-                "ucPreset": 0, "qualityToggle": True, "autoSmea": False,
-                "dynamic_thresholding": False, "controlnet_strength": 1,
-                "legacy": False, "add_original_image": True,
-                "legacy_v3_extend": False, "skip_cfg_above_sigma": None,
-                "use_coords": False, "characterPrompts": [],
-                "prefer_brownian": True,
-                "deliberate_euler_ancestral_bug": False,
-                # v4 계열은 아래 두 덩어리가 없으면 프롬프트를 조용히 무시한다
-                "v4_prompt": {"caption": {"base_caption": prompt,
-                                          "char_captions": []},
-                              "use_coords": False, "use_order": True},
-                "v4_negative_prompt": {"caption": {"base_caption": uc,
-                                                   "char_captions": []},
-                                       "legacy_uc": False},
-                "negative_prompt": uc,
-            }}
-
-    headers = dict(BROWSER)
-    headers["Content-Type"] = "application/json"
-    headers["Authorization"] = "Bearer " + key
-    r = urllib.request.Request(NAI_URL, json.dumps(body).encode(), headers)
-    try:
-        with urllib.request.urlopen(r, timeout=300) as resp:
-            got = resp.read()
-    except urllib.error.HTTPError as e:
-        detail = e.read()[:300].decode("utf-8", "replace")
-        logging.warning("NAI %s: %s", e.code, detail)
-        return _json({"error": f"NovelAI {e.code}: {detail[:150]}"}, 502)
-    except Exception as e:
-        return _json({"error": f"{type(e).__name__}: {e}"[:200]}, 502)
-
-    # 응답은 PNG 가 아니라 ZIP 이다 — 이 API 의 유일한 함정
-    z = zipfile.ZipFile(io.BytesIO(got))
-    return _json({"url": _save(z.read(z.namelist()[0])), "seed": seed})
+    out = h.wfile.getvalue()
+    head, _, payload = out.partition(b"\r\n\r\n")
+    lines = head.decode("latin1").split("\r\n")
+    status = int(lines[0].split(" ")[1]) if lines and " " in lines[0] else 200
+    hdrs = {}
+    for ln in lines[1:]:
+        if ": " in ln:
+            k, v = ln.split(": ", 1)
+            if k.lower() not in ("transfer-encoding", "connection", "content-length"):
+                hdrs[k] = v
+    return func.HttpResponse(payload, status_code=status, headers=hdrs)
 
 
-@app.route(route="ping", methods=["GET"])
-def ping(req: func.HttpRequest) -> func.HttpResponse:
-    """살아 있는지 + 키가 꽂혔는지. 키 값은 내려보내지 않는다."""
-    return _json({"ok": True, "has_key": bool(os.environ.get("NAI_KEY"))})
+@app.route(route="{*path}", methods=["GET", "POST", "PUT", "DELETE"])
+def all_routes(req: func.HttpRequest) -> func.HttpResponse:
+    return _run(req)

@@ -132,8 +132,86 @@ class LocalStore:
         return self._p(key)
 
 
-# 모든 접근이 지나는 단 하나의 객체. 나중에 Blob 을 끼울 자리도 여기.
-store = LocalStore(DATA)
+class BlobStore:
+    """Azure Blob. 클라우드에는 디스크가 없어 파일 대신 이것을 쓴다.
+
+    ★LocalStore 와 **메서드가 같아야** 한다 — 부르는 쪽 23곳이 둘을 구분하지
+      않는다. 새 메서드를 한쪽에만 더하지 말 것.
+    ★키를 그대로 blob 이름으로 쓴다. 폴더가 없으므로 `list_keys` 는 접두 조회이고,
+      한 칸 아래만 돌려준다 (로컬의 `iterdir` 과 결과를 맞추기 위해서다).
+    """
+
+    def __init__(self, conn, container="crack"):
+        from azure.storage.blob import BlobServiceClient   # Functions 에만 있다
+        self.c = BlobServiceClient.from_connection_string(conn).get_container_client(container)
+        try:
+            self.c.create_container()
+        except Exception:
+            pass                      # 이미 있으면 그만
+
+    def _k(self, key):
+        return "/".join(s for s in str(key).split("/") if s not in ("", ".", ".."))
+
+    def get_bytes(self, key):
+        try:
+            return self.c.download_blob(self._k(key)).readall()
+        except Exception:
+            return None
+
+    def put_bytes(self, key, blob, private=False):
+        # private 은 로컬의 chmod 용이다. 컨테이너가 이미 비공개라 할 일이 없다.
+        self.c.upload_blob(self._k(key), blob, overwrite=True)
+
+    def get_json(self, key, default=None):
+        b = self.get_bytes(key)
+        if b is None:
+            return default
+        try:
+            return json.loads(b.decode("utf-8"))
+        except Exception:
+            return default
+
+    def put_json(self, key, obj, private=False, indent=2):
+        self.put_bytes(key, json.dumps(obj, ensure_ascii=False,
+                                       indent=indent).encode("utf-8"))
+
+    def list_keys(self, prefix=""):
+        head = self._k(prefix)
+        head = head + "/" if head else ""
+        out = []
+        for b in self.c.list_blobs(name_starts_with=head):
+            rest = b.name[len(head):]
+            # ★한 칸 아래만 — 로컬이 iterdir 이라 하위 폴더까지 파고들지 않는다
+            if "/" in rest or not rest or rest.startswith("."):
+                continue
+            out.append(b.name)
+        return sorted(out)
+
+    def exists(self, key):
+        return self.get_bytes(key) is not None
+
+    def delete(self, key):
+        try:
+            self.c.delete_blob(self._k(key))
+        except Exception:
+            pass                      # 없는 것을 지우는 건 오류가 아니다
+
+    def stat(self, key):
+        try:
+            pr = self.c.get_blob_client(self._k(key)).get_blob_properties()
+        except Exception:
+            return None
+        return int(pr.last_modified.timestamp()), pr.size
+
+    def local_path(self, key):
+        # ponytail: CLI 제공사(agy·claude)는 클라우드에 없으므로 부를 일이 없다.
+        raise NotImplementedError("Blob 에는 파일 경로가 없다")
+
+
+# 모든 접근이 지나는 단 하나의 객체.
+# ★연결 문자열이 있으면 Blob, 없으면 파일. 코드가 아니라 환경이 정한다.
+_conn = os.environ.get("CRACK_BLOB") or ""
+store = BlobStore(_conn) if _conn else LocalStore(DATA)
 
 # ── 주입 규칙 ────────────────────────────────────────────────
 # 프롬프트는 매 턴 항상. 키워드북 노트는 키워드가 최근 SCAN_TURNS 턴에
@@ -1963,6 +2041,12 @@ def selftest():
         assert pero_images() == [], "없는 폴더인데 바깥 것을 끌어왔다"
     finally:
         PERO = _po
+
+    # ★두 저장소는 **메서드가 같아야** 한다 — 부르는 쪽이 둘을 구분하지 않는다.
+    #   한쪽에만 메서드를 더하면 클라우드에서만 죽는다(로컬 selftest 는 통과).
+    _lm = {m for m in dir(LocalStore) if not m.startswith("_")}
+    _bm = {m for m in dir(BlobStore) if not m.startswith("_")}
+    assert _lm == _bm, ("저장소 메서드가 갈렸다", _lm ^ _bm)
 
     # 꼬리표 뽑기 — `A_001` 만 잡고, 정리 안 된 이름은 빈 값
     assert name_tag("A_001.png") == ("A", 1)
