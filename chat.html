@@ -207,6 +207,8 @@ button{font-family:inherit;}
 .msg{margin:20px 0;word-break:break-word;}
 .msg.assistant p{font-size:15px;line-height:1.75;margin:0 0 12px;color:#e8e8e8;}
 .msg.assistant p:last-child{margin-bottom:0;}
+.refused{margin:8px 0 4px;padding:7px 10px;border:1px solid #4a2a24;border-radius:8px;
+  background:#1b1210;color:#c98a7d;font-size:12px;}
 .think{margin:0 0 12px;}
 .think-head{font-size:12px;color:#7a7a7a;cursor:pointer;list-style:none;user-select:none;}
 .think-head::-webkit-details-marker{display:none;}
@@ -1095,7 +1097,8 @@ async function openChat(id){
     role: m.role === 'user' ? 'user' : 'assistant',
     content: String(m.content || ''),
     fired: Array.isArray(m.fired) ? m.fired : [],
-    think: (m.think && typeof m.think === 'object') ? m.think : null
+    think: (m.think && typeof m.think === 'object') ? m.think : null,
+    refused: !!m.refused
   }));
   renderMessages();
   renderChats();
@@ -1217,6 +1220,14 @@ function renderMessages(){
     } else {
       div.className = 'msg assistant' + (m.error ? ' error' : '');
       if (m.think) div.appendChild(thinkBox(m.think));
+      // 모델이 거절한 답. 내용이 아니라 모델 문제라는 걸 알려야
+      // 프롬프트를 붙잡고 씨름하지 않는다.
+      if (m.refused){
+        const w = document.createElement('div');
+        w.className = 'refused';
+        w.textContent = '이 모델이 거절했어요 — 모델을 바꾸거나 다시 보내 보세요';
+        div.appendChild(w);
+      }
       String(m.content).split('\n').forEach(p => {
         if (!p.trim()) return;
         appendLine(div, p);
@@ -1308,6 +1319,7 @@ async function callChat(message){
     renderNoteTag();   // 요약이 갱신되면 서랍의 '장기 기억' 글자수가 바뀐다
     renderWarn();
     log.push({role:'assistant', content:String(data.reply || ''), fired:Array.isArray(data.fired) ? data.fired : [],
+              refused:!!data.refused,
               think:(data.think && Object.keys(data.think).length) ? data.think : null});
     await saveChat();
   }catch(err){
@@ -1337,7 +1349,7 @@ async function saveChat(){
         img_off: imgOff,
         persona_id: personaId,
         model: currentModel ? currentModel.pid + '/' + currentModel.mid : null,
-        log: log.filter(m => !m.error).map(m => ({role:m.role, content:m.content, fired:m.fired || [], think:m.think || null}))
+        log: log.filter(m => !m.error).map(m => ({role:m.role, content:m.content, fired:m.fired || [], think:m.think || null, refused:!!m.refused}))
       })
     });
     if (res.ok){

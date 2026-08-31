@@ -152,6 +152,38 @@ def sniff_image(blob):
     return None
 
 
+def png_meta(f):
+    """PNG 안에 박힌 생성 정보를 꺼낸다.
+
+    NovelAI 가 프롬프트·시드·설정을 tEXt 청크에 넣어 준다. 그래서 갤러리는
+    따로 기록을 들 필요가 없다 — 그림 자체가 기록이다. 올린 그림에는
+    청크가 없으니 빈 dict 가 나온다.
+    """
+    try:
+        b = f.read_bytes()
+        if b[:8] != b"\x89PNG\r\n\x1a\n":
+            return {}
+        out, i = {}, 8
+        while i + 8 <= len(b):
+            ln = int.from_bytes(b[i:i + 4], "big")
+            typ = b[i + 4:i + 8]
+            if typ == b"IEND":
+                break
+            # ★IDAT 에서 멈추지 않는다 — NAI 는 Comment 를 그림 데이터
+            #   뒤에 두기도 한다(실측). 멈추면 프롬프트를 통째로 놓친다.
+            if typ == b"tEXt":
+                k, _, v = b[i + 8:i + 8 + ln].partition(b"\x00")
+                out[k.decode("latin1")] = v.decode("utf-8", "replace")
+            i += 12 + ln
+        c = json.loads(out.get("Comment") or "{}")
+        return {"prompt": c.get("prompt") or out.get("Description") or "",
+                "seed": c.get("seed") or 0, "steps": c.get("steps") or 0,
+                "scale": c.get("scale") or 0, "uc": c.get("uc") or "",
+                "w": c.get("width") or 0, "h": c.get("height") or 0}
+    except Exception:
+        return {}          # 못 읽어도 그림은 보여야 한다
+
+
 def save_image(blob):
     """내용 해시로 저장한다 — 같은 그림을 두 번 올려도 파일 하나."""
     kind = sniff_image(blob)
@@ -660,13 +692,45 @@ def _why(code, body, key_env=""):
     except Exception:
         msg = ""
     msg = (msg or body or "").strip().replace("\n", " ")
-    if code in (401, 403) or "api key" in msg.lower():
+    low0 = (msg or "").lower()
+    if code == 403 and not any(w in low0 for w in ("key", "auth", "credential",
+                                                   "token", "permission")):
+        # 키가 멀쩡해도 내용 때문에 403 이 온다 (Grok 이 그렇다).
+        # 키 문제로 안내하면 멀쩡한 키를 붙잡고 씨름하게 된다.
+        return "제공사가 이 요청을 막았어요 (내용 제한)"
+    if code in (401, 403) or "api key" in low0:
         return f"API 키가 거부됐어요 ({key_env or '키'} 확인)"
     if code == 400 and "key" in msg.lower():
         return f"API 키가 거부됐어요 ({key_env or '키'} 확인)"
     if code == 429:
         return "요청이 너무 많아요 (429)"
+    # 내용 때문에 막힌 것과 고장난 것을 섞으면 안 된다 — 고칠 방법이 다르다.
+    # 이건 모델이 아니라 제공사의 필터가 요청 단계에서 쳐낸 것.
+    low = msg.lower()
+    if any(w in low for w in ("content polic", "usage polic", "safety",
+                              "moderation", "flagged", "blocked",
+                              "violat", "prohibited", "inappropriate")):
+        return f"제공사가 내용을 막았어요 — {msg[:70]}"
     return f"HTTP {code} — {msg[:80]}" if msg else f"HTTP {code}"
+
+
+# 모델이 "못 쓰겠다"고 답한 경우. 오류가 아니라 정상 응답이라 문구로 안다.
+REFUSALS = ("죄송하지만", "죄송합니다", "도와드릴 수 없", "도와드리기 어렵",
+            "만들 수 없", "생성할 수 없", "작성할 수 없", "응답할 수 없",
+            "제공할 수 없", "제공해 드릴 수 없", "쓸 수 없", "답할 수 없",
+            "요청을 수행할 수 없", "그런 내용은",
+            "i'm sorry", "i am sorry", "i cannot", "i can't", "i won't",
+            "unable to", "as an ai")
+
+
+def looks_refused(text):
+    """짧고 사과로 시작하면 거절. 긴 글은 본문 안에 그 말이 있어도 거절이 아니다
+    (등장인물이 '죄송합니다'라고 말할 수 있다)."""
+    t = (text or "").strip()
+    if not t or len(t) > 400:
+        return False
+    head = t[:80].lower()
+    return any(w in head for w in REFUSALS)
 
 
 def _fetch_models(p, timeout=8):
@@ -1203,6 +1267,17 @@ class Handler(SimpleHTTPRequestHandler):
         return None, ""
 
     def do_GET(self):
+        if self.path == "/api/gallery":
+            # 새 것부터. 파일 자체가 기록이라 따로 목록을 안 든다.
+            rows = []
+            for f in sorted(IMAGES.glob("*"), key=lambda x: -x.stat().st_mtime):
+                if f.name.startswith(".") or not f.is_file():
+                    continue
+                st = f.stat()
+                rows.append({"url": "/img/" + f.name, "name": f.name,
+                             "at": int(st.st_mtime), "size": st.st_size,
+                             **png_meta(f)})
+            return self._json({"items": rows})
         if self.path.startswith("/img/"):
             # 데이터 폴더는 소스 밖에 있을 수 있어 기본 정적 서빙이 못 찾는다.
             # 이름만 취해 폴더 밖으로 못 나가게 한다.
@@ -1273,6 +1348,14 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"error": f"저장하지 못했어요: {e}"}, 500)
             return self._json({"url": "/img/" + name})
         data = json.loads(self.rfile.read(n) or b"{}")
+        if self.path == "/api/gallery-del":
+            # 이름만 받는다. 경로를 그대로 믿으면 폴더 밖 파일을 지운다.
+            fn = os.path.basename(str(data.get("name") or ""))
+            f = IMAGES / fn
+            if not fn or not f.is_file():
+                return self._json({"error": "그림을 찾지 못했어요"}, 404)
+            f.unlink()
+            return self._json({"ok": True})
         if self.path == "/api/name-image":
             # 이미 올라간 그림을 모델이 보고 이름을 짓는다. 파일은 다시
             # 받지 않는다 — url 로 가리키기만 하면 된다.
@@ -1426,6 +1509,7 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 return self._json({"error": str(e)[:400]}, 502)
             return self._json({"reply": reply, "fired": fired,
+                               "refused": looks_refused(reply),
                                "memory": memory, "summarized": summarized,
                                "chronicle": chronicle, "logged_turns": logged,
                                "wrote_events": wrote_events,
@@ -1682,6 +1766,30 @@ def selftest():
     assert sniff_image(b"<?php echo 1;") is None
     assert sniff_image(b"") is None
     n1 = save_image(png)
+    # png_meta: NAI 는 Comment 를 그림 데이터(IDAT) **뒤에** 두기도 한다.
+    # 거기서 멈추면 프롬프트를 통째로 놓친다.
+    def _chunk(t, body):
+        return len(body).to_bytes(4, "big") + t + body + b"\x00\x00\x00\x00"
+    _cm = json.dumps({"prompt": "1girl, rain", "seed": 42, "steps": 28,
+                      "scale": 7.0, "width": 832, "height": 1216, "uc": "bad"})
+    _png = (b"\x89PNG\r\n\x1a\n"
+            + _chunk(b"IHDR", b"\x00" * 13)
+            + _chunk(b"IDAT", b"\x00" * 40)
+            + _chunk(b"tEXt", b"Comment\x00" + _cm.encode())
+            + _chunk(b"IEND", b""))
+    _f = IMAGES / "_t_meta.png"
+    IMAGES.mkdir(parents=True, exist_ok=True)
+    _f.write_bytes(_png)
+    try:
+        _m = png_meta(_f)
+        assert _m["prompt"] == "1girl, rain" and _m["seed"] == 42, _m
+        assert _m["w"] == 832 and _m["h"] == 1216, _m
+        assert png_meta(IMAGES / "_nope_.png") == {}      # 없는 파일에 안 죽는다
+        _f.write_bytes(b"not a png at all")
+        assert png_meta(_f) == {}                          # PNG 아니면 빈 값
+    finally:
+        _f.unlink(missing_ok=True)
+
     assert n1.endswith(".png") and (IMAGES / n1).is_file()
     assert (IMAGES / n1).read_bytes() == png
     assert save_image(png) == n1, "같은 그림은 파일 하나여야 한다"
@@ -1716,6 +1824,23 @@ def selftest():
     for v in ({}, {"imgOn": True}):
         assert "[이미지]" in build_system(
             dict(ps, images=ist["images"], **v), [], ""), v
+
+    # 403: 키 문제와 내용 차단을 가른다 (Grok 은 내용 때문에도 403 을 준다)
+    assert _why(403, '{"error":"Forbidden"}', "XAI_API_KEY") == "제공사가 이 요청을 막았어요 (내용 제한)"
+    assert "키가 거부" in _why(403, '{"error":"invalid api key"}', "XAI_API_KEY")
+    assert "키가 거부" in _why(401, '{"error":"nope"}', "XAI_API_KEY")
+
+    # 거절 판정: 짧은 사과만 거절. 긴 본문 속 대사는 거절이 아니다.
+    assert looks_refused("죄송하지만 그런 내용은 도와드릴 수 없습니다.")
+    assert looks_refused("I'm sorry, I can't help with that.")
+    assert not looks_refused("")
+    assert not looks_refused("비가 내렸다. 그는 우산을 폈다.")
+    # 등장인물이 사과하는 장면을 거절로 읽으면 안 된다
+    assert not looks_refused("그는 고개를 숙였다. \"죄송합니다.\" " + "장면이 이어졌다. " * 40)
+    # 사과가 뒤쪽에 묻어 있는 긴 글도 거절이 아니다
+    assert not looks_refused("장면 묘사. " * 30 + "죄송하지만")
+    # 실측에서 놓쳤던 것 — Grok 이 이 문구로 거절한다
+    assert looks_refused("그런 내용은 제공할 수 없습니다. 살아있는 사람을 해부하는 행위는")
 
     # NovelAI 키: .env 가 언제나 이긴다. 파일이 이기면 옛 키가 조용히 산다.
     _real_nai, NAI_FILE = NAI_FILE, NAI_FILE.parent / "_t_novelai.json"
