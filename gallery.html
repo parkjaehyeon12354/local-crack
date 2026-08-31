@@ -62,6 +62,18 @@ button{font-family:inherit;cursor:pointer;}
 .gi .cap{padding:7px 8px;font-size:10px;color:#7a7a7a;line-height:1.45;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .gempty{color:#4a4a4a;font-size:13px;padding:26px 0;}
+.tools button{background:#171717;border:1px solid #2c2c2c;color:#ddd;
+  border-radius:8px;padding:7px 13px;font-size:12px;}
+.tools button:hover{border-color:#f5442e;color:#f5442e;}
+/* 페로픽스 것은 남의 폴더다 — 한눈에 구분되어야 헷갈리지 않는다 */
+.gi .tag{position:absolute;top:5px;left:5px;padding:2px 6px;border-radius:5px;
+  background:rgba(0,0,0,.7);color:#9a9a9a;font-size:9px;}
+/* 그림을 창 아무 데나 끌어와도 받는다 — 격자 위만 받으면 빈 갤러리에선 못 올린다 */
+.drop{position:fixed;inset:0;background:rgba(10,10,10,.9);z-index:60;
+  display:none;align-items:center;justify-content:center;
+  border:3px dashed #f5442e;}
+.drop.on{display:flex;}
+.drop span{color:#f5442e;font-size:17px;font-weight:700;}
 /* 손가락에는 hover 가 없다 — 지우기를 늘 보여준다 */
 @media(hover:none){.gi .x{opacity:.85;}}
 
@@ -101,9 +113,12 @@ button{font-family:inherit;cursor:pointer;}
   <div class="tools">
     <span><b id="gn">0</b>장</span>
     <input id="q" type="search" placeholder="프롬프트로 찾기">
+    <button id="up">그림 올리기</button>
+    <input id="file" type="file" accept="image/*" multiple hidden>
     <label><input type="checkbox" id="gbig"> 크게</label>
   </div>
   <div class="grid" id="grid"></div>
+  <div class="drop" id="drop"><span>여기에 놓으면 올라갑니다</span></div>
 </div></div>
 
 <div class="mask" id="mask">
@@ -150,9 +165,11 @@ function draw() {
   $('grid').innerHTML = shown.map((m, i) => {
     const cap = m.prompt ? esc(String(m.prompt).slice(0, 70))
                          : (m.seed ? 'seed ' + m.seed : '올린 그림');
+    const pero = m.from === 'pero';
     return '<div class="gi" data-i="' + i + '" title="' + esc(m.prompt || '') + '">' +
       '<img src="' + esc(m.url) + '" alt="" loading="lazy">' +
-      '<button class="x" data-del="' + esc(m.name || '') + '">✕</button>' +
+      (pero ? '<span class="tag">페로픽스</span>'
+            : '<button class="x" data-del="' + esc(m.name || '') + '">✕</button>') +
       '<div class="cap">' + cap + '</div></div>';
   }).join('');
 }
@@ -235,6 +252,42 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') close_();
   if (e.key === 'ArrowLeft') open_(at - 1);
   if (e.key === 'ArrowRight') open_(at + 1);
+});
+
+// ── 올리기. 버튼과 끌어놓기가 같은 길을 탄다.
+async function upload(files) {
+  const imgs = [...files].filter(f => f.type.startsWith('image/'));
+  if (!imgs.length) return;
+  let ok = 0; const bad = [];
+  for (const f of imgs) {
+    try {
+      const r = await fetch('/api/images', { method: 'POST', body: f });
+      if (r.ok) ok++;
+      else bad.push(f.name + ': ' + ((await r.json().catch(() => ({}))).error || r.status));
+    } catch (e) { bad.push(f.name + ': ' + e.message); }
+  }
+  await load();
+  if (bad.length) alert(ok + '장 올렸고, ' + bad.length + '장 실패했어요\\n\\n' + bad.join('\\n'));
+}
+$('up').onclick = () => $('file').click();
+$('file').onchange = e => { upload(e.target.files); e.target.value = ''; };
+
+// 창 어디에 놓아도 받는다 — 격자 위만 받으면 빈 갤러리에선 놓을 자리가 없다.
+// dragleave 는 자식 위를 지날 때도 오므로 셈으로 막는다(안 그러면 깜빡인다).
+let dragN = 0;
+const hasFiles = e => [...(e.dataTransfer ? e.dataTransfer.types : [])].includes('Files');
+addEventListener('dragenter', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragN++; $('drop').classList.add('on');
+});
+addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+addEventListener('dragleave', () => {
+  if (--dragN <= 0) { dragN = 0; $('drop').classList.remove('on'); }
+});
+addEventListener('drop', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragN = 0; $('drop').classList.remove('on');
+  upload(e.dataTransfer.files);
 });
 
 load();

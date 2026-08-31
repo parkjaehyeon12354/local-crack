@@ -152,6 +152,35 @@ def sniff_image(blob):
     return None
 
 
+# 페로픽스가 그림을 쌓는 자리. 여기 것은 읽기만 한다 (복사·삭제 안 함).
+PERO = Path(os.environ.get("PERO_DIR", "/mnt/e/다운로드/PeroPix/workspaces"))
+
+
+def pero_images():
+    """페로픽스 생성물. 폴더가 없으면 빈 목록 — 앱이 없어도 갤러리는 떠야 한다
+    (rglob 은 없는 폴더에서 터지지 않고 빈 결과를 준다)."""
+    out = []
+    for ext in ("*.png", "*.jpg", "*.jpeg", "*.webp"):
+        out += [f for f in PERO.rglob(ext) if f.is_file()]
+    return out
+
+
+def pero_rel(f):
+    """페로픽스 뿌리에서의 상대 경로. 슬래시로 통일해 주소로 쓴다."""
+    return f.relative_to(PERO).as_posix()
+
+
+def _is_pero_name(name):
+    """페로픽스 그림인가. 그쪽 이름에는 폴더가 붙는다 (`z/output/…`)."""
+    return "/" in name
+
+
+def pero_url(f):
+    """주소로 쓸 형태. ★인코딩은 여기 한 곳에서 — 폴더 이름이 한글이라
+    날것으로 내보내면 브라우저가 못 부른다."""
+    return "/pero/" + urllib.parse.quote(pero_rel(f))
+
+
 def png_meta(f):
     """PNG 안에 박힌 생성 정보를 꺼낸다.
 
@@ -1270,14 +1299,41 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/gallery":
             # 새 것부터. 파일 자체가 기록이라 따로 목록을 안 든다.
             rows = []
-            for f in sorted(IMAGES.glob("*"), key=lambda x: -x.stat().st_mtime):
+            for f in IMAGES.glob("*"):
                 if f.name.startswith(".") or not f.is_file():
                     continue
                 st = f.stat()
                 rows.append({"url": "/img/" + f.name, "name": f.name,
                              "at": int(st.st_mtime), "size": st.st_size,
-                             **png_meta(f)})
+                             "from": "crack", **png_meta(f)})
+            # 페로픽스 것은 **읽기만** 한다 — 복사하면 같은 그림이 두 벌이 되고
+            # 한쪽을 지워도 다른 쪽이 남는다. 원본 폴더가 그대로 진실이다.
+            for f in pero_images():
+                st = f.stat()
+                rows.append({"url": pero_url(f), "name": pero_rel(f),
+                             "at": int(st.st_mtime), "size": st.st_size,
+                             "from": "pero", **png_meta(f)})
+            rows.sort(key=lambda r: -r["at"])
             return self._json({"items": rows})
+        if self.path.startswith("/pero/"):
+            # ★뿌리 밖으로 못 나가게 한다 — `..` 을 섞으면 아무 파일이나 읽힌다.
+            rel = urllib.parse.unquote(self.path[len("/pero/"):])
+            f = (PERO / rel).resolve()
+            try:
+                f.relative_to(PERO.resolve())
+            except ValueError:
+                return self._json({"error": "없음"}, 404)
+            if not f.is_file():
+                return self._json({"error": "없음"}, 404)
+            blob = f.read_bytes()
+            kind = sniff_image(blob)     # (확장자, mime) — mime 을 그대로 쓴다
+            if not kind:
+                return self._json({"error": "그림이 아니에요"}, 404)
+            self.send_response(200)
+            self.send_header("Content-Type", kind[1])
+            self.send_header("Content-Length", str(len(blob)))
+            self.end_headers()
+            return self.wfile.write(blob)
         if self.path.startswith("/img/"):
             # 데이터 폴더는 소스 밖에 있을 수 있어 기본 정적 서빙이 못 찾는다.
             # 이름만 취해 폴더 밖으로 못 나가게 한다.
@@ -1349,6 +1405,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"url": "/img/" + name})
         data = json.loads(self.rfile.read(n) or b"{}")
         if self.path == "/api/gallery-del":
+            # ★페로픽스 것은 안 지운다 — 남의 폴더다. 우리는 읽기만 한다.
+            if _is_pero_name(str(data.get("name") or "")):
+                return self._json(
+                    {"error": "페로픽스 그림은 페로픽스에서 지워 주세요"}, 400)
             # 이름만 받는다. 경로를 그대로 믿으면 폴더 밖 파일을 지운다.
             fn = os.path.basename(str(data.get("name") or ""))
             f = IMAGES / fn
@@ -1365,11 +1425,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"error": "그림을 찾지 못했어요"}, 404)
             try:
                 blob = f.read_bytes()
-                ext = sniff_image(blob)
-                if not ext:
+                kind = sniff_image(blob)      # (확장자, mime)
+                if not kind:
                     raise ValueError("그림이 아니에요")
-                mime = "image/jpeg" if ext == ".jpg" else "image/" + ext[1:]
-                label = name_image(str(data.get("model") or ""), blob, mime)
+                label = name_image(str(data.get("model") or ""), blob, kind[1])
             except Exception as e:
                 return self._json({"error": str(e)[:200]}, 502)
             return self._json({"label": label})
@@ -1789,6 +1848,35 @@ def selftest():
         assert png_meta(_f) == {}                          # PNG 아니면 빈 값
     finally:
         _f.unlink(missing_ok=True)
+
+    # 페로픽스 폴더: 하위 폴더까지 훑고, 없으면 조용히 빈 목록
+    import tempfile as _tf
+    global PERO
+    _po = PERO
+    try:
+        PERO = Path(_tf.mkdtemp())
+        (PERO / "z" / "output" / "멀티").mkdir(parents=True)
+        (PERO / "z" / "output" / "멀티" / "a.png").write_bytes(png)
+        (PERO / "z" / "note.txt").write_text("x")      # 그림 아닌 것은 안 센다
+        _got = pero_images()
+        assert len(_got) == 1, _got
+        assert pero_rel(_got[0]) == "z/output/멀티/a.png", pero_rel(_got[0])
+        # 한글이 든 이름은 **주소로 나갈 때** 인코딩돼야 한다.
+        # 날것으로 나가면 브라우저가 못 부른다 — 목록이 만드는 url 을 직접 본다.
+        _url = pero_url(_got[0])
+        assert _url.isascii() and "%" in _url, _url
+        # 앱이 없어도 갤러리는 떠야 한다 — 없는 폴더면 빈 목록
+        _root = Path(_tf.mkdtemp())
+        (_root / "밖.png").write_bytes(png)          # 뿌리 **바깥**의 그림
+        PERO = _root / "없는폴더"
+        assert not PERO.is_dir()
+        assert pero_images() == [], "없는 폴더인데 바깥 것을 끌어왔다"
+    finally:
+        PERO = _po
+
+    # 페로픽스 것(이름에 폴더가 붙는다)은 지우면 안 된다 — 남의 폴더다
+    assert _is_pero_name("z/output/멀티/a.png")
+    assert not _is_pero_name("abc123.png")
 
     assert n1.endswith(".png") and (IMAGES / n1).is_file()
     assert (IMAGES / n1).read_bytes() == png
