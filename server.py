@@ -161,7 +161,12 @@ def pero_images():
     (rglob 은 없는 폴더에서 터지지 않고 빈 결과를 준다)."""
     out = []
     for ext in ("*.png", "*.jpg", "*.jpeg", "*.webp"):
-        out += [f for f in PERO.rglob(ext) if f.is_file()]
+        for f in PERO.rglob(ext):
+            # ★썸네일·휴지통은 뺀다 — 안 그러면 한 장이 두 장으로 보인다
+            #   (`.thumbs/` 에 원본마다 webp 가 하나씩 앉는다).
+            if not f.is_file() or any(x.startswith(".") for x in f.parts):
+                continue
+            out.append(f)
     return out
 
 
@@ -1858,6 +1863,8 @@ def selftest():
         (PERO / "z" / "output" / "멀티").mkdir(parents=True)
         (PERO / "z" / "output" / "멀티" / "a.png").write_bytes(png)
         (PERO / "z" / "note.txt").write_text("x")      # 그림 아닌 것은 안 센다
+        (PERO / "z" / ".thumbs").mkdir()               # 썸네일은 원본이 아니다
+        (PERO / "z" / ".thumbs" / "a.webp").write_bytes(png)
         _got = pero_images()
         assert len(_got) == 1, _got
         assert pero_rel(_got[0]) == "z/output/멀티/a.png", pero_rel(_got[0])
