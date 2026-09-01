@@ -300,8 +300,10 @@ button{font-family:inherit;}
     </div>
     <div class="chead">
       <span>채팅 목록</span>
+      <button class="dots" id="chatImport" title="날려받은 채팅 불러오기">⭱</button>
       <button class="dots" title="더보기">···</button>
     </div>
+    <input type="file" id="chatImportFile" accept=".json,application/json" hidden>
     <div id="chatList"></div>
   </aside>
 
@@ -1000,6 +1002,33 @@ function startNewSession(){
   renderMessages();
 }
 
+/* ── 채팅 불러오기 ── */
+/* 날려받은 파일을 새 방으로 저장한다. id 는 서버가 새로 매기니 원본과 안 겹친다.
+   log 가 없는 파일은 채팅이 아니다 — 그냥 저장하면 빈 방이 생기니 막는다. */
+$('chatImport').addEventListener('click', () => $('chatImportFile').click());
+$('chatImportFile').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  let data;
+  try { data = JSON.parse(await f.text()); }
+  catch(_) { alert('JSON 파일이 아니에요'); return; }
+  if (!Array.isArray(data.log)){ alert('채팅 파일이 아니에요'); return; }
+  delete data.id;                       // 새 id 를 받아야 원본을 덮지 않는다
+  delete data.saved_at;
+  data.title = String(data.title || '불러온 채팅') + ' (사본)';
+  try{
+    const res = await fetch('/api/chats', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw 0;
+    const d = await res.json();
+    await loadChats();
+    if (d && d.id != null) openChat(d.id);
+  }catch(_){ alert('불러오기에 실패했어요'); }
+});
+
 /* ── 채팅 목록 ── */
 async function loadChats(){
   try{
@@ -1023,7 +1052,7 @@ function renderChats(){
         '<div class="p">' + esc(c.preview || '') + '</div>' +
       '</div>' +
       '<button class="more" title="더보기">⋮</button>' +
-      '<div class="row-menu"><button class="del">삭제</button></div>' +
+      '<div class="row-menu"><button class="exp">날려받기</button><button class="del">삭제</button></div>' +
     '</div>'
   ).join('');
 }
@@ -1035,6 +1064,22 @@ chatList.addEventListener('click', async e => {
     const wasOpen = menu.classList.contains('open');
     closeRowMenus();
     if (!wasOpen) menu.classList.add('open');
+    return;
+  }
+  const exp = e.target.closest('.exp');
+  if (exp){
+    e.stopPropagation();
+    const id = exp.closest('.chat-row').dataset.id;
+    closeRowMenus();
+    // 서버에 저장된 그대로를 파일로 — 모델·요약·기억까지 딸려 간다
+    fetch('/api/chats/' + encodeURIComponent(id)).then(r => r.ok ? r.json() : Promise.reject()).then(data => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (String(data.title || 'chat').replace(/[\\/:*?"<>|]/g, '_') || 'chat') + '.crackchat.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }).catch(() => alert('날려받기에 실패했어요'));
     return;
   }
   const del = e.target.closest('.del');
