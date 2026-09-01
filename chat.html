@@ -300,7 +300,7 @@ button{font-family:inherit;}
     </div>
     <div class="chead">
       <span>채팅 목록</span>
-      <button class="dots" id="chatImport" title="날려받은 채팅 불러오기">⭱</button>
+      <button class="dots" id="chatImport" title="채팅 불러오기">⭱</button>
       <button class="dots" title="더보기">···</button>
     </div>
     <input type="file" id="chatImportFile" accept=".json,application/json" hidden>
@@ -1003,7 +1003,7 @@ function startNewSession(){
 }
 
 /* ── 채팅 불러오기 ── */
-/* 날려받은 파일을 새 방으로 저장한다. id 는 서버가 새로 매기니 원본과 안 겹친다.
+/* 다운로드한 파일을 새 방으로 저장한다. id 는 서버가 새로 매기니 원본과 안 겹친다.
    log 가 없는 파일은 채팅이 아니다 — 그냥 저장하면 빈 방이 생기니 막는다. */
 $('chatImport').addEventListener('click', () => $('chatImportFile').click());
 $('chatImportFile').addEventListener('change', async e => {
@@ -1052,7 +1052,7 @@ function renderChats(){
         '<div class="p">' + esc(c.preview || '') + '</div>' +
       '</div>' +
       '<button class="more" title="더보기">⋮</button>' +
-      '<div class="row-menu"><button class="exp">날려받기</button><button class="del">삭제</button></div>' +
+      '<div class="row-menu"><button class="exp">채팅 다운로드</button><button class="del">삭제</button></div>' +
     '</div>'
   ).join('');
 }
@@ -1079,7 +1079,7 @@ chatList.addEventListener('click', async e => {
       a.download = (String(data.title || 'chat').replace(/[\\/:*?"<>|]/g, '_') || 'chat') + '.crackchat.json';
       a.click();
       URL.revokeObjectURL(a.href);
-    }).catch(() => alert('날려받기에 실패했어요'));
+    }).catch(() => alert('다운로드에 실패했어요'));
     return;
   }
   const del = e.target.closest('.del');
