@@ -1436,6 +1436,57 @@ def save_item(folder, data, limit):
     return data
 
 
+def from_crack(raw):
+    """크랙(crack.wrtn.ai) 확장이 뽑아준 작품 JSON → 우리 draft 모양.
+
+    크랙 것이 아니면 None. 원본은 최상위 필드가 59개인데 우리가 쓰는 건
+    이름·프롬프트·시작설정·키워드북뿐이라 나머지는 버린다.
+    키 이름이 버전마다 조금씩 다르길래 후보를 나열해서 첫 번째로 있는 걸 쓴다.
+    """
+    if not isinstance(raw, dict) or "customPrompt" not in raw:
+        return None
+
+    def pick(d, *names):
+        for n in names:
+            v = d.get(n)
+            if isinstance(v, str) and v.strip():
+                return v
+        return ""
+
+    starts = []
+    for i, s in enumerate(raw.get("startingSets") or []):
+        if not isinstance(s, dict):
+            continue
+        starts.append({
+            "name": pick(s, "name", "title") or f"시작 설정 {i + 1}",
+            "prologue": pick(s, "prologue", "firstMessage", "greeting", "content"),
+            "situation": pick(s, "situation", "background", "worldview"),
+            "guide": pick(s, "guide", "playGuide", "playingGuide"),
+        })
+    if not starts:
+        starts = [{"name": "기본 설정", "prologue": "", "situation": "", "guide": ""}]
+
+    notes = []
+    for s in raw.get("startingSets") or []:
+        for n in (s.get("keywordBook") or []) if isinstance(s, dict) else []:
+            if not isinstance(n, dict):
+                continue
+            kws = [str(k).strip() for k in (n.get("keywords") or []) if str(k).strip()]
+            notes.append({
+                "title": pick(n, "title", "name"),
+                "info": pick(n, "info", "prompt", "content"),
+                "keywords": kws[:5],          # 우리 UI 상한이 5개
+                "scope": "all",               # 스코프는 이름 매칭이 애매해 전체로
+            })
+
+    return {"title": pick(raw, "name", "title"),
+            "subtitle": pick(raw, "simpleDescription", "description"),
+            "image": "", "promptTemplate": "custom",
+            "prompt": raw.get("customPrompt") or "",
+            "starts": starts, "notes": notes,
+            "images": [], "imgOn": False, "imgRule": "fit"}
+
+
 def backup():
     """하루에 한 번, 첫 저장 때 zip 하나. 이미 오늘 것이 있으면 안 만든다."""
     key = f"{BACKUPS}/crack-{date.today().isoformat()}.zip"
@@ -1680,6 +1731,11 @@ class Handler(SimpleHTTPRequestHandler):
             nai_save_key(str(data.get("key") or ""))
             k, src = nai_key()
             return self._json({"has_key": bool(k), "src": src})
+        if self.path == "/api/import":
+            row = from_crack(data)
+            if not row:
+                return self._json({"error": "크랙 작품 파일이 아니에요"}, 400)
+            return self._json(save_item(DRAFTS, row, MAX_DRAFTS))
         if self.path == "/api/providers":
             return self._add_provider(data)
         (kind, _) = self._kind()
@@ -2348,6 +2404,24 @@ def selftest():
         store.delete(f"{CHATS}/{got['id']}.json")
         assert not store.exists(f"{CHATS}/{got['id']}.json")
         assert got["id"] not in [x["id"] for x in list_items(CHATS, MAX_CHATS)]
+
+        # 크랙 작품 가져오기: 프롬프트·시작설정·키워드북이 살아 넘어오는가
+        assert from_crack({"name": "x"}) is None, "크랙 파일이 아니면 거절"
+        assert from_crack([]) is None
+        imp = from_crack({
+            "name": "삼칠플", "simpleDescription": "설명",
+            "customPrompt": "P" * 6993,
+            "startingSets": [{"name": "1막", "prologue": "프롤", "situation": "상황",
+                              "guide": "가이드",
+                              "keywordBook": [{"title": "메스가키", "prompt": "M",
+                                               "keywords": list("abcdefg")}]}],
+        })
+        assert imp["title"] == "삼칠플" and len(imp["prompt"]) == 6993
+        assert imp["starts"][0]["prologue"] == "프롤"
+        assert imp["notes"][0]["info"] == "M", "prompt 를 info 로 옮겨야 함"
+        assert len(imp["notes"][0]["keywords"]) == 5, "키워드는 5개까지"
+        # 시작설정이 없어도 빌더가 열려야 한다
+        assert len(from_crack({"customPrompt": ""})["starts"]) == 1
 
         zips = [k for k in store.list_keys(BACKUPS) if k.endswith(".zip")]
         assert len(zips) == 1, f"하루 1개여야 함: {zips}"
