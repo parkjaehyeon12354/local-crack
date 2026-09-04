@@ -224,6 +224,26 @@ input::placeholder,textarea::placeholder{color:#5a5a5a}
 .mrow-x{flex:none;background:none;border:none;color:#777;cursor:pointer;padding:6px;border-radius:6px}
 .mrow-x:hover{color:#f5442e;background:#221312}
 .note-empty{padding:56px 0;text-align:center;color:#666;font-size:14px}
+.tpl{border:1px solid #2a2a2a;border-radius:10px;padding:12px;margin-bottom:10px;background:#141414}
+.tpl input{width:100%;background:#1a1a1a;border:1px solid #2e2e2e;border-radius:8px;padding:8px 10px;color:#eee;font-size:13px;font-family:inherit;margin-bottom:6px}
+.tpl input:focus{outline:none;border-color:#f5442e}
+.tpl .r{display:flex;gap:6px;align-items:center}
+.tpl .r input{margin:0}
+.tpl .n{width:74px;flex:none}
+.mgrid{display:grid;gap:8px;margin-bottom:8px}
+.mgrid .gi{position:relative;border:1px solid #242424;border-radius:9px;overflow:hidden;background:#141414}
+.mgrid .gi img{width:100%;aspect-ratio:2/3;object-fit:cover;display:block;background:#1c1c1c}
+.mgrid .gi.bad img{display:none}
+.mgrid .gi.bad::before{content:'✕';display:block;aspect-ratio:2/3;color:#f5442e;font-size:18px;
+  display:flex;align-items:center;justify-content:center;background:#2a1512}
+.mgrid .gi b{position:absolute;top:4px;left:4px;padding:1px 5px;border-radius:5px;
+  background:rgba(0,0,0,.72);color:#f5442e;font-size:10px}
+.mgrid .gi .x{position:absolute;top:4px;right:4px;width:20px;height:20px;border:0;border-radius:5px;
+  background:rgba(0,0,0,.72);color:#ddd;font-size:12px;line-height:1;cursor:pointer}
+.mgrid .gi .x:hover{background:#f5442e;color:#fff}
+.mgrid .gi .lb{width:100%;background:#101010;border:0;border-top:1px solid #242424;
+  padding:5px 6px;color:#bbb;font-size:11px;font-family:inherit}
+.mgrid .gi .lb:focus{outline:none;color:#eee}
 .note-row{display:flex;align-items:center;gap:12px;min-height:70px;padding:12px 0;border-bottom:1px solid #1c1c1c}
 .note-main{flex:1;min-width:0;cursor:pointer}
 .note-title{font-size:14px;font-weight:600;color:#e8e8e8;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -703,6 +723,21 @@ function renderMedia(c){
       '<button class="btn-block" id="btn-upimg">'+I.plus+'<span>파일 올리기</span></button>'+
       '<div class="up-hint">여러 장을 한 번에 고르거나 여기로 끌어다 놓으세요</div>'+
     '</div>'+
+    '<div class="tpl">'+
+      '<input id="t-url" placeholder="주소 틀 — https://example.com/캐릭터/의상/상황.jpg" spellcheck="false">'+
+      '<input id="t-c" placeholder="캐릭터 자리 값 — a,b,c 또는 1..38">'+
+      '<input id="t-l" placeholder="의상 자리 값 — big,small (비우면 안 바꿈)">'+
+      '<input id="t-s" placeholder="상황 자리 값 — 1,2,3..38">'+
+      '<div class="r">'+
+        '<button class="btn-ai" id="btn-tpl">틀로 등록</button>'+
+        '<span class="hint" id="t-st"></span>'+
+      '</div>'+
+    '</div>'+
+    '<div class="tpl r">'+
+      '<label class="hint">칸수</label>'+
+      '<input class="n" id="t-cols" type="number" min="1" max="12" value="'+imgCols()+'">'+
+      '<span class="hint">목록을 몇 칸으로 늘어놓을지</span>'+
+    '</div>'+
     '<div class="name-bar" id="name-bar" style="display:none">'+
       '<button class="btn-ai" id="btn-ainame">이름 없는 것만 AI로 짓기</button>'+
       '<span class="hint" id="ainame-st"></span>'+
@@ -720,6 +755,21 @@ function renderMedia(c){
   z.addEventListener('drop',e=>uploadImgs([...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'))));
   renderImgList();
   $('btn-ainame').onclick=aiNameImages;
+  $('t-cols').onchange=e=>{
+    localStorage.setItem('crack.imgCols',Math.min(12,Math.max(1,+e.target.value||4)));
+    renderImgList();
+  };
+  // 틀로 등록: 주소만 만든다 — 파일을 받지 않으니 서버를 안 거친다.
+  $('btn-tpl').onclick=()=>{
+    const urls=expandTemplate($('t-url').value,[
+      ['캐릭터',$('t-c').value],['의상',$('t-l').value],['상황',$('t-s').value]]);
+    if(!urls.length){$('t-st').textContent='주소 틀을 적어 주세요';return;}
+    const have=new Set((state.images||[]).map(im=>im.url));
+    const add=urls.filter(u=>!have.has(u));     // 같은 주소는 한 번만
+    state.images=(state.images||[]).concat(add.map(u=>({label:'',url:u})));
+    $('t-st').textContent=add.length+'장 등록'+(urls.length-add.length?' ('+(urls.length-add.length)+'장은 이미 있음)':'');
+    renderImgList();renderPreview();
+  };
 }
 // 이름이 빈 그림만 모델에게 보여 주고 이름을 받는다.
 // 사람이 적어 둔 이름은 건드리지 않는다 — 덮어쓰면 되돌릴 방법이 없다.
@@ -777,6 +827,34 @@ async function uploadImgs(files){
   if(btn){btn.disabled=false;if(sp)sp.textContent='파일 올리기';}
   renderImgList();renderPreview();
 }
+// si-ran 식 주소 틀. `틀` 안의 한글 자리(캐릭터·의상·상황)를 목록 값으로 바꾼다.
+// `3..38` 은 범위 — 앞자리 0 개수를 지킨다(`0002..0004` → 0002,0003,0004).
+function expandRange(str){
+  const out=[];
+  for(const raw of String(str||'').split(/[~,]/)){
+    const t=raw.trim();
+    if(!t)continue;
+    const m=t.match(/^([^0-9]*)(\d+)\.\.(\d+)$/);
+    if(!m){out.push(t);continue;}
+    const [,pre,a,b]=m, s0=Number(a), e0=Number(b);
+    if(s0>e0){out.push(t);continue;}
+    for(let i=s0;i<=e0;i++)out.push(pre+String(i).padStart(a.length,'0'));
+  }
+  return out;
+}
+// 틀 하나 + 자리별 목록 → 주소 목록. 자리를 비우면 그 자리는 안 바꾼다.
+function expandTemplate(tpl,slots){
+  let urls=[String(tpl||'').trim()];
+  if(!urls[0])return [];
+  for(const [word,list] of slots){
+    const vals=expandRange(list);
+    if(!vals.length)continue;
+    urls=urls.flatMap(u=>u.includes(word)?vals.map(v=>u.split(word).join(v)):[u]);
+  }
+  return urls;
+}
+function imgCols(){ return Math.min(12,Math.max(1,+(localStorage.getItem('crack.imgCols')||4))); }
+
 function renderImgList(){
   const w=$('img-list');if(!w)return;
   const list=state.images||[];
@@ -784,21 +862,20 @@ function renderImgList(){
   const bar=$('name-bar');
   if(bar)bar.style.display=list.some(im=>!(im.label||'').trim()&&im.url)?'flex':'none';
   if(!list.length){w.innerHTML='<div class="note-empty">등록한 이미지가 없어요</div>';return;}
+  w.style.gridTemplateColumns='repeat('+imgCols()+',1fr)';
+  w.className='mgrid';
   w.innerHTML=list.map((im,i)=>
-    '<div class="mrow" data-i="'+i+'">'+
-      '<div class="mrow-n">'+(i+1)+'</div>'+
-      '<div class="mrow-th">'+(im.url?'<img src="'+esc(imgUrl(im))+'" alt="" onerror="this.parentNode.classList.add(\'bad\')">':'')+'</div>'+
-      '<div class="mrow-f">'+
-        '<input data-k="label" placeholder="이름 (예: 칸나 무표정)" value="'+esc(im.label||'')+'">'+
-      '</div>'+
-      '<button class="mrow-x" title="삭제">'+I.trash+'</button>'+
+    '<div class="gi" data-i="'+i+'">'+
+      '<img src="'+esc(imgUrl(im))+'" alt="" loading="lazy" onerror="this.parentNode.classList.add(\'bad\')">'+
+      '<b>'+(i+1)+'</b><button class="x" title="삭제">✕</button>'+
+      '<input class="lb" data-k="label" placeholder="이름" value="'+esc(im.label||'')+'">'+
     '</div>').join('');
-  w.querySelectorAll('.mrow').forEach(row=>{
+  w.querySelectorAll('.gi').forEach(row=>{
     const i=+row.dataset.i;
     row.querySelector('[data-k=label]').oninput=e=>{
       state.images[i].label=e.target.value;renderPreview();
     };
-    row.querySelector('.mrow-x').onclick=()=>{state.images.splice(i,1);renderImgList();renderPreview();};
+    row.querySelector('.x').onclick=()=>{state.images.splice(i,1);renderImgList();renderPreview();};
   });
 }
 
