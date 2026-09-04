@@ -124,6 +124,7 @@ button{font-family:inherit;cursor:pointer;}
     <button id="up">그림 올리기</button>
     <input id="file" type="file" accept="image/*" multiple hidden>
     <label><input type="checkbox" id="gbig"> 크게</label>
+    <button id="pero">페로픽스 연결</button>
   </div>
   <div class="grid" id="grid"></div>
   <div class="drop" id="drop"><span>여기에 놓으면 올라갑니다</span></div>
@@ -215,7 +216,33 @@ async function load() {
   catch (e) { all = []; }
   fillTags();
   draw();
+  peroLabel();
 }
+
+// 페로픽스 폴더 연결. 안 정해 두면 페로픽스 그림은 안 뜬다.
+// 브라우저는 폴더 경로를 못 읽으니 서버가 찾아 준 후보를 고르거나 직접 적는다.
+async function peroState(){
+  try{ return await (await fetch('/api/pero')).json(); }catch(e){ return {}; }
+}
+async function peroLabel(){
+  const s = await peroState();
+  $('pero').textContent = s.dir ? ('페로픽스 ' + s.count + '장') : '페로픽스 연결';
+}
+$('pero').onclick = async () => {
+  const s = await peroState();
+  const found = s.found || [];
+  const hint = found.length ? '\n\n찾은 폴더:\n' + found.join('\n') : '';
+  const v = prompt(
+    '페로픽스 workspaces 폴더 경로를 넣으세요. 비우면 연결이 끊깁니다.' + hint,
+    s.dir || found[0] || '');
+  if (v === null) return;
+  const r = await fetch('/api/pero', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ dir: v }),
+  });
+  if (!r.ok) { alert((await r.json().catch(()=>({}))).error || '연결하지 못했어요'); return; }
+  load();
+};
 
 function open_(i) {
   if (i < 0 || i >= shown.length) return;

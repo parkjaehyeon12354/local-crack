@@ -323,15 +323,46 @@ def sniff_image(blob):
 
 
 # 페로픽스가 그림을 쌓는 자리. 여기 것은 읽기만 한다 (복사·삭제 안 함).
-PERO = Path(os.environ.get("PERO_DIR", "/mnt/e/다운로드/PeroPix/workspaces"))
+# 비어 있으면 갤러리에 페로픽스 그림이 안 뜬다 — 기본은 꺼짐이다.
+PERO_FILE = "peropix.json"
+
+
+def pero_dir():
+    """설정된 페로픽스 workspaces 경로. 안 정했으면 None."""
+    d = os.environ.get("PERO_DIR") or \
+        (store.get_json(PERO_FILE) or {}).get("dir") or ""
+    return Path(d) if d.strip() else None
+
+
+def pero_save_dir(d):
+    store.put_json(PERO_FILE, {"dir": str(d or "").strip()})
+
+
+def pero_find():
+    """페로픽스 workspaces 폴더 후보를 찾는다. 없으면 빈 목록.
+    ponytail: 깊이 2까지만 훑는다 — 드라이브 전체 rglob 은 분 단위로 걸린다."""
+    out = []
+    for root in (Path.home(), Path("/mnt/c"), Path("/mnt/d"), Path("/mnt/e")):
+        if not root.is_dir():
+            continue
+        for pat in ("PeroPix/workspaces", "*/PeroPix/workspaces",
+                    "*/*/PeroPix/workspaces"):
+            try:
+                out += [str(p) for p in root.glob(pat) if p.is_dir()]
+            except OSError:
+                pass
+    return sorted(set(out))
 
 
 def pero_images():
     """페로픽스 생성물. 폴더가 없으면 빈 목록 — 앱이 없어도 갤러리는 떠야 한다
     (rglob 은 없는 폴더에서 터지지 않고 빈 결과를 준다)."""
+    root = pero_dir()
+    if not root:
+        return []
     out = []
     for ext in ("*.png", "*.jpg", "*.jpeg", "*.webp"):
-        for f in PERO.rglob(ext):
+        for f in root.rglob(ext):
             # ★썸네일·휴지통은 뺀다 — 안 그러면 한 장이 두 장으로 보인다
             #   (`.thumbs/` 에 원본마다 webp 가 하나씩 앉는다).
             if not f.is_file() or any(x.startswith(".") for x in f.parts):
@@ -342,7 +373,7 @@ def pero_images():
 
 def pero_rel(f):
     """페로픽스 뿌리에서의 상대 경로. 슬래시로 통일해 주소로 쓴다."""
-    return f.relative_to(PERO).as_posix()
+    return f.relative_to(pero_dir()).as_posix()
 
 
 TAG_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]{0,7})_(\d{3})$")
@@ -1560,10 +1591,13 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"items": rows})
         if self.path.startswith("/pero/"):
             # ★뿌리 밖으로 못 나가게 한다 — `..` 을 섞으면 아무 파일이나 읽힌다.
+            root = pero_dir()
+            if not root:
+                return self._json({"error": "없음"}, 404)
             rel = urllib.parse.unquote(self.path[len("/pero/"):])
-            f = (PERO / rel).resolve()
+            f = (root / rel).resolve()
             try:
-                f.relative_to(PERO.resolve())
+                f.relative_to(root.resolve())
             except ValueError:
                 return self._json({"error": "없음"}, 404)
             if not f.is_file():
@@ -1594,6 +1628,12 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/api/personas":
             return self._json(load_list(PERSONAS))
+        if self.path == "/api/pero":
+            d = pero_dir()
+            return self._json({"dir": str(d) if d else "",
+                               "ok": bool(d and d.is_dir()),
+                               "count": len(pero_images()),
+                               "found": pero_find()})
         if self.path == "/api/nai-key":
             # providers 와 같은 규칙 — 값은 안 내려보내고 있는지만 알린다
             k, src = nai_key()
@@ -1731,6 +1771,13 @@ class Handler(SimpleHTTPRequestHandler):
             nai_save_key(str(data.get("key") or ""))
             k, src = nai_key()
             return self._json({"has_key": bool(k), "src": src})
+        if self.path == "/api/pero":
+            d = str(data.get("dir") or "").strip()
+            if d and not Path(d).is_dir():
+                return self._json({"field": "dir",
+                                   "error": "그런 폴더가 없어요"}, 400)
+            pero_save_dir(d)
+            return self._json({"dir": d, "count": len(pero_images())})
         if self.path == "/api/import":
             row = from_crack(data)
             if not row:
@@ -2088,17 +2135,20 @@ def selftest():
     finally:
         store.delete(_k)
 
-    # 페로픽스 폴더: 하위 폴더까지 훑고, 없으면 조용히 빈 목록
+    # 페로픽스 폴더: 하위 폴더까지 훑고, 안 정했거나 없으면 조용히 빈 목록
     import tempfile as _tf
-    global PERO
-    _po = PERO
+    _penv = os.environ.pop("PERO_DIR", None)   # 환경변수가 있으면 파일을 덮는다
     try:
-        PERO = Path(_tf.mkdtemp())
-        (PERO / "z" / "output" / "멀티").mkdir(parents=True)
-        (PERO / "z" / "output" / "멀티" / "a.png").write_bytes(png)
-        (PERO / "z" / "note.txt").write_text("x")      # 그림 아닌 것은 안 센다
-        (PERO / "z" / ".thumbs").mkdir()               # 썸네일은 원본이 아니다
-        (PERO / "z" / ".thumbs" / "a.webp").write_bytes(png)
+        assert pero_dir() is None, "안 정했으면 꺼진 상태여야 함"
+        assert pero_images() == [], "안 정했는데 그림을 끌어왔다"
+
+        _p = Path(_tf.mkdtemp())
+        pero_save_dir(_p)
+        (_p / "z" / "output" / "멀티").mkdir(parents=True)
+        (_p / "z" / "output" / "멀티" / "a.png").write_bytes(png)
+        (_p / "z" / "note.txt").write_text("x")       # 그림 아닌 것은 안 센다
+        (_p / "z" / ".thumbs").mkdir()                # 썸네일은 원본이 아니다
+        (_p / "z" / ".thumbs" / "a.webp").write_bytes(png)
         _got = pero_images()
         assert len(_got) == 1, _got
         assert pero_rel(_got[0]) == "z/output/멀티/a.png", pero_rel(_got[0])
@@ -2109,11 +2159,16 @@ def selftest():
         # 앱이 없어도 갤러리는 떠야 한다 — 없는 폴더면 빈 목록
         _root = Path(_tf.mkdtemp())
         (_root / "밖.png").write_bytes(png)          # 뿌리 **바깥**의 그림
-        PERO = _root / "없는폴더"
-        assert not PERO.is_dir()
+        pero_save_dir(_root / "없는폴더")
         assert pero_images() == [], "없는 폴더인데 바깥 것을 끌어왔다"
+        # 꺼는 것도 돼야 한다 — 빈 값이면 원래대로 꺼짐
+        pero_save_dir("")
+        assert pero_dir() is None and pero_images() == []
+        assert isinstance(pero_find(), list)          # 못 찾아도 안 터진다
     finally:
-        PERO = _po
+        store.delete(PERO_FILE)
+        if _penv is not None:
+            os.environ["PERO_DIR"] = _penv
 
     # ★두 저장소는 **메서드가 같아야** 한다 — 부르는 쪽이 둘을 구분하지 않는다.
     #   한쪽에만 메서드를 더하면 클라우드에서만 죽는다(로컬 selftest 는 통과).
