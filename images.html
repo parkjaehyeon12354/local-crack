@@ -106,6 +106,12 @@ textarea{line-height:1.6;}
       </div>
       <div class="keyok" id="keyok" hidden><span id="keysrc"></span><button id="editkey">바꾸기</button></div>
 
+      <div class="keybar" id="perobar" hidden>
+        <input id="perodir" placeholder="페로픽스 workspaces 폴더 경로" autocomplete="off" spellcheck="false">
+        <button id="perosave">연결</button>
+      </div>
+      <div class="keyok" id="peraok" hidden><span id="perosrc"></span><button id="editpero">바꾸기</button></div>
+
       <div class="fld">
         <label>프롬프트</label>
         <textarea id="p" rows="6" placeholder="1girl, black hair, rain, alley, night"></textarea>
@@ -234,6 +240,31 @@ $('savekey').onclick = async () => {
   loadKey();
 };
 $('editkey').onclick = () => { $('keybar').hidden = false; $('keyok').hidden = true; };
+
+// 페로픽스 폴더 연결. 여기서 한 번 정하면 갤러리 「동기화」가 그 경로를 쓴다.
+// 경로는 서버가 찾아 준 후보를 채워 준다 — 브라우저는 폴더 경로를 못 읽는다.
+async function peroLoad(){
+  let j = {};
+  try{ j = await (await fetch('/api/pero')).json(); }catch(e){}
+  const open = !j.dir || location.hash === '#pero';
+  $('perobar').hidden = !open;
+  $('peraok').hidden = open;
+  $('perodir').value = j.dir || (j.found || [])[0] || '';
+  $('perosrc').textContent = '페로픽스 ' + (j.dir || '');
+}
+$('editpero').onclick = () => { $('perobar').hidden = false; $('peraok').hidden = true; };
+$('perosave').onclick = async () => {
+  const r = await fetch('/api/pero', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ dir: $('perodir').value }),
+  });
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) { alert(j.error || '연결하지 못했어요'); return; }
+  alert(j.dir ? ('연결했어요. 그림 ' + j.added + '장을 가져왔습니다.') : '연결을 끊었어요.');
+  location.hash = '';
+  peroLoad();
+};
+peroLoad();
 
 async function generate() {
   const prompt = $('p').value.trim();

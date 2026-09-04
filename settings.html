@@ -169,6 +169,16 @@ select:focus{border-color:#4a4a4a;}
   </div>
 
   <div class="card">
+    <h2>페로픽스 폴더</h2>
+    <div class="desc">갤러리 「페로픽스 동기화」가 여기서 그림을 가져옵니다. 비우면 연결이 끊깁니다.</div>
+    <div class="row-btn">
+      <input id="perodir" placeholder="아직 연결 안 됨" autocomplete="off" spellcheck="false" style="flex:1;min-width:220px">
+      <button class="btn" id="perosave">저장</button>
+    </div>
+    <div class="desc" id="perofound"></div>
+  </div>
+
+  <div class="card">
     <h2>데이터</h2>
     <div class="desc">전부 <code>크랙빌더/data</code> 폴더의 JSON입니다. 삭제하면 되돌릴 수 없어요.</div>
     <div id="counts"></div>
@@ -344,6 +354,26 @@ $('del-chats').onclick = async () => {
   await counts();
   toast('채팅 기록을 삭제했어요');
 };
+
+// 페로픽스 경로. 첫 연결은 이미지 탭에서 하고, 여기서는 바꾸기만 한다.
+async function peroLoad(){
+  let j = {};
+  try{ j = await (await fetch('/api/pero')).json(); }catch(e){}
+  $('perodir').value = j.dir || '';
+  const f = (j.found || []).filter(x => x !== j.dir);
+  $('perofound').textContent = f.length ? '찾은 폴더: ' + f.join('  ·  ') : '';
+}
+$('perosave').onclick = async () => {
+  const r = await fetch('/api/pero', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ dir: $('perodir').value }),
+  });
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) return toast(j.error || '저장하지 못했어요');
+  toast(j.dir ? ('연결했어요 — ' + j.added + '장 가져옴') : '연결을 끊었어요');
+  peroLoad();
+};
+peroLoad();
 
 load();
 </script>

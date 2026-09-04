@@ -66,9 +66,6 @@ button{font-family:inherit;cursor:pointer;}
 .tools button{background:#171717;border:1px solid #2c2c2c;color:#ddd;
   border-radius:8px;padding:7px 13px;font-size:12px;}
 .tools button:hover{border-color:#f5442e;color:#f5442e;}
-/* 페로픽스 것은 남의 폴더다 — 한눈에 구분되어야 헷갈리지 않는다 */
-.gi .tag{position:absolute;top:5px;left:5px;padding:2px 6px;border-radius:5px;
-  background:rgba(0,0,0,.7);color:#9a9a9a;font-size:9px;}
 /* 그림을 창 아무 데나 끌어와도 받는다 — 격자 위만 받으면 빈 갤러리에선 못 올린다 */
 .drop{position:fixed;inset:0;background:rgba(10,10,10,.9);z-index:60;
   display:none;align-items:center;justify-content:center;
@@ -124,7 +121,7 @@ button{font-family:inherit;cursor:pointer;}
     <button id="up">그림 올리기</button>
     <input id="file" type="file" accept="image/*" multiple hidden>
     <label><input type="checkbox" id="gbig"> 크게</label>
-    <button id="pero">페로픽스 연결</button>
+    <button id="pero">페로픽스 동기화</button>
   </div>
   <div class="grid" id="grid"></div>
   <div class="drop" id="drop"><span>여기에 놓으면 올라갑니다</span></div>
@@ -189,11 +186,9 @@ function draw() {
     const cap = m.tag ? m.tag + ' ' + String(m.no).padStart(3, '0')
               : m.prompt ? esc(String(m.prompt).slice(0, 70))
               : (m.seed ? 'seed ' + m.seed : '올린 그림');
-    const pero = m.from === 'pero';
     return '<div class="gi" data-i="' + i + '" title="' + esc(m.prompt || '') + '">' +
       '<img src="' + esc(m.url) + '" alt="" loading="lazy">' +
-      (pero ? '<span class="tag">페로픽스</span>'
-            : '<button class="x" data-del="' + esc(m.name || '') + '">✕</button>') +
+      '<button class="x" data-del="' + esc(m.name || '') + '">✕</button>' +
       '<div class="cap">' + cap + '</div></div>';
   }).join('');
 }
@@ -219,28 +214,24 @@ async function load() {
   peroLabel();
 }
 
-// 페로픽스 폴더 연결. 안 정해 두면 페로픽스 그림은 안 뜬다.
-// 브라우저는 폴더 경로를 못 읽으니 서버가 찾아 준 후보를 고르거나 직접 적는다.
-async function peroState(){
-  try{ return await (await fetch('/api/pero')).json(); }catch(e){ return {}; }
-}
+// 페로픽스에 새로 생긴 그림을 내 갤러리로 복사한다. 원본은 안 건드린다.
+// 폴더를 아직 안 정했으면 이미지 탭으로 보낸다 — 연결은 거기 한 곳에서만.
 async function peroLabel(){
-  const s = await peroState();
-  $('pero').textContent = s.dir ? ('페로픽스 ' + s.count + '장') : '페로픽스 연결';
+  let s = {};
+  try{ s = await (await fetch('/api/pero')).json(); }catch(e){}
+  $('pero').textContent = s.dir ? '페로픽스 동기화' : '페로픽스 연결하기';
+  $('pero').dataset.dir = s.dir || '';
 }
 $('pero').onclick = async () => {
-  const s = await peroState();
-  const found = s.found || [];
-  const hint = found.length ? '\n\n찾은 폴더:\n' + found.join('\n') : '';
-  const v = prompt(
-    '페로픽스 workspaces 폴더 경로를 넣으세요. 비우면 연결이 끊깁니다.' + hint,
-    s.dir || found[0] || '');
-  if (v === null) return;
-  const r = await fetch('/api/pero', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ dir: v }),
-  });
-  if (!r.ok) { alert((await r.json().catch(()=>({}))).error || '연결하지 못했어요'); return; }
+  if (!$('pero').dataset.dir) { location.href = '/images.html#pero'; return; }
+  $('pero').disabled = true;
+  $('pero').textContent = '가져오는 중…';
+  try{
+    const r = await fetch('/api/pero-sync', { method: 'POST' });
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok) alert(j.error || '가져오지 못했어요');
+    else if (!j.added) alert('새로 들어온 그림이 없어요');
+  } finally { $('pero').disabled = false; }
   load();
 };
 

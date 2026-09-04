@@ -371,9 +371,23 @@ def pero_images():
     return out
 
 
-def pero_rel(f):
-    """페로픽스 뿌리에서의 상대 경로. 슬래시로 통일해 주소로 쓴다."""
-    return f.relative_to(pero_dir()).as_posix()
+def pero_sync():
+    """페로픽스 그림을 내 갤러리로 복사한다. 새로 들어온 장수를 돌려준다.
+
+    ★이름을 그대로 쓴다 — 해시로 바꾸면 `A_001` 꼬리표가 사라져 정렬이 깨진다.
+    같은 이름이 이미 있으면 건너뛴다(다시 눌러도 안전).
+    """
+    n = 0
+    for f in pero_images():
+        name = f.name
+        if store.exists(f"{IMAGES}/{name}"):
+            continue
+        blob = f.read_bytes()
+        if not sniff_image(blob) or len(blob) > MAX_IMG:
+            continue
+        store.put_bytes(f"{IMAGES}/{name}", blob)
+        n += 1
+    return n
 
 
 TAG_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]{0,7})_(\d{3})$")
@@ -388,17 +402,6 @@ def name_tag(name):
     """
     m = TAG_RE.match(os.path.basename(name).rsplit(".", 1)[0])
     return (m.group(1), int(m.group(2))) if m else ("", 0)
-
-
-def _is_pero_name(name):
-    """페로픽스 그림인가. 그쪽 이름에는 폴더가 붙는다 (`z/output/…`)."""
-    return "/" in name
-
-
-def pero_url(f):
-    """주소로 쓸 형태. ★인코딩은 여기 한 곳에서 — 폴더 이름이 한글이라
-    날것으로 내보내면 브라우저가 못 부른다."""
-    return "/pero/" + urllib.parse.quote(pero_rel(f))
 
 
 def png_meta(b):
@@ -1578,39 +1581,8 @@ class Handler(SimpleHTTPRequestHandler):
                              "at": st[0], "size": st[1],
                              "from": "crack", "tag": tag, "no": no,
                              **png_meta(store.get_bytes(k) or b"")})
-            # 페로픽스 것은 **읽기만** 한다 — 복사하면 같은 그림이 두 벌이 되고
-            # 한쪽을 지워도 다른 쪽이 남는다. 원본 폴더가 그대로 진실이다.
-            for f in pero_images():
-                st = f.stat()
-                tag, no = name_tag(f.name)
-                rows.append({"url": pero_url(f), "name": pero_rel(f),
-                             "at": int(st.st_mtime), "size": st.st_size,
-                             "from": "pero", "tag": tag, "no": no,
-                             **png_meta(f.read_bytes())})
             rows.sort(key=lambda r: -r["at"])
             return self._json({"items": rows})
-        if self.path.startswith("/pero/"):
-            # ★뿌리 밖으로 못 나가게 한다 — `..` 을 섞으면 아무 파일이나 읽힌다.
-            root = pero_dir()
-            if not root:
-                return self._json({"error": "없음"}, 404)
-            rel = urllib.parse.unquote(self.path[len("/pero/"):])
-            f = (root / rel).resolve()
-            try:
-                f.relative_to(root.resolve())
-            except ValueError:
-                return self._json({"error": "없음"}, 404)
-            if not f.is_file():
-                return self._json({"error": "없음"}, 404)
-            blob = f.read_bytes()
-            kind = sniff_image(blob)     # (확장자, mime) — mime 을 그대로 쓴다
-            if not kind:
-                return self._json({"error": "그림이 아니에요"}, 404)
-            self.send_response(200)
-            self.send_header("Content-Type", kind[1])
-            self.send_header("Content-Length", str(len(blob)))
-            self.end_headers()
-            return self.wfile.write(blob)
         if self.path.startswith("/img/"):
             # 데이터 폴더는 소스 밖에 있을 수 있어 기본 정적 서빙이 못 찾는다.
             # 이름만 취해 폴더 밖으로 못 나가게 한다.
@@ -1686,9 +1658,6 @@ class Handler(SimpleHTTPRequestHandler):
         data = json.loads(self.rfile.read(n) or b"{}")
         if self.path == "/api/gallery-del":
             # ★페로픽스 것은 안 지운다 — 남의 폴더다. 우리는 읽기만 한다.
-            if _is_pero_name(str(data.get("name") or "")):
-                return self._json(
-                    {"error": "페로픽스 그림은 페로픽스에서 지워 주세요"}, 400)
             # 이름만 받는다. 경로를 그대로 믿으면 폴더 밖 파일을 지운다.
             fn = os.path.basename(str(data.get("name") or ""))
             if not fn or not store.exists(f"{IMAGES}/{fn}"):
@@ -1777,7 +1746,12 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"field": "dir",
                                    "error": "그런 폴더가 없어요"}, 400)
             pero_save_dir(d)
-            return self._json({"dir": d, "count": len(pero_images())})
+            # 처음 연결하면 바로 끌어온다 — 연결만 하고 빈 갤러리를 보면 고장 같다
+            return self._json({"dir": d, "added": pero_sync() if d else 0})
+        if self.path == "/api/pero-sync":
+            if not pero_dir():
+                return self._json({"error": "페로픽스 폴더를 먼저 연결해 주세요"}, 400)
+            return self._json({"added": pero_sync()})
         if self.path == "/api/import":
             row = from_crack(data)
             if not row:
@@ -2138,6 +2112,7 @@ def selftest():
     # 페로픽스 폴더: 하위 폴더까지 훑고, 안 정했거나 없으면 조용히 빈 목록
     import tempfile as _tf
     _penv = os.environ.pop("PERO_DIR", None)   # 환경변수가 있으면 파일을 덮는다
+    _pstore, store = store, LocalStore(_tf.mkdtemp())   # 진짜 데이터를 안 만진다
     try:
         assert pero_dir() is None, "안 정했으면 꺼진 상태여야 함"
         assert pero_images() == [], "안 정했는데 그림을 끌어왔다"
@@ -2150,12 +2125,14 @@ def selftest():
         (_p / "z" / ".thumbs").mkdir()                # 썸네일은 원본이 아니다
         (_p / "z" / ".thumbs" / "a.webp").write_bytes(png)
         _got = pero_images()
-        assert len(_got) == 1, _got
-        assert pero_rel(_got[0]) == "z/output/멀티/a.png", pero_rel(_got[0])
-        # 한글이 든 이름은 **주소로 나갈 때** 인코딩돼야 한다.
-        # 날것으로 나가면 브라우저가 못 부른다 — 목록이 만드는 url 을 직접 본다.
-        _url = pero_url(_got[0])
-        assert _url.isascii() and "%" in _url, _url
+        assert len(_got) == 1 and _got[0].name == "a.png", _got
+
+        # 동기화: 복사되고, 이름이 유지되고, 두 번 눌러도 안 늘어난다
+        assert pero_sync() == 1
+        assert store.exists(f"{IMAGES}/a.png"), "이름 그대로 저장해야 꼬리표가 산다"
+        assert pero_sync() == 0, "같은 그림을 또 복사했다"
+        store.delete(f"{IMAGES}/a.png")
+
         # 앱이 없어도 갤러리는 떠야 한다 — 없는 폴더면 빈 목록
         _root = Path(_tf.mkdtemp())
         (_root / "밖.png").write_bytes(png)          # 뿌리 **바깥**의 그림
@@ -2164,9 +2141,10 @@ def selftest():
         # 꺼는 것도 돼야 한다 — 빈 값이면 원래대로 꺼짐
         pero_save_dir("")
         assert pero_dir() is None and pero_images() == []
+        assert pero_sync() == 0, "안 정했는데 복사했다"
         assert isinstance(pero_find(), list)          # 못 찾아도 안 터진다
     finally:
-        store.delete(PERO_FILE)
+        store = _pstore
         if _penv is not None:
             os.environ["PERO_DIR"] = _penv
 
@@ -2183,10 +2161,6 @@ def selftest():
     assert name_tag("a1b2c3.png") == ("", 0)         # 해시 이름(올린 그림)
     assert name_tag("A_1.png") == ("", 0)            # 자릿수가 다르면 아니다
     assert name_tag("A_0012.png") == ("", 0)
-
-    # 페로픽스 것(이름에 폴더가 붙는다)은 지우면 안 된다 — 남의 폴더다
-    assert _is_pero_name("z/output/멀티/a.png")
-    assert not _is_pero_name("abc123.png")
 
     assert n1.endswith(".png") and store.exists(f"{IMAGES}/{n1}")
     assert store.get_bytes(f"{IMAGES}/{n1}") == png
