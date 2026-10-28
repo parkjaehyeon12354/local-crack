@@ -1281,9 +1281,12 @@ def nai_save_key(key):
 
 
 def nai_generate(prompt, uc="", seed=0, model="nai-diffusion-4-5-full",
-                 width=1216, height=832, steps=28, scale=7.0):
+                 width=1216, height=832, steps=28, scale=7.0,
+                 ref="", strength=0.7):
     """그림 한 장. 저장된 파일 이름을 돌려준다.
-    응답이 PNG 가 아니라 ZIP 이라는 게 이 API 의 유일한 함정."""
+    응답이 PNG 가 아니라 ZIP 이라는 게 이 API 의 유일한 함정.
+    ref 는 레퍼런스 그림의 base64(PNG). 넣으면 i2i 로 간다 —
+    크기 맞추기는 브라우저 canvas 가 한다. 서버에 PIL 을 들이지 않으려고."""
     key, _ = nai_key()
     if not key:
         raise ValueError("NovelAI 키를 먼저 넣어 주세요")
@@ -1310,6 +1313,12 @@ def nai_generate(prompt, uc="", seed=0, model="nai-diffusion-4-5-full",
                                        "legacy_uc": False},
                 "negative_prompt": uc,
             }}
+    if ref:
+        # img2img. action 과 image 를 같이 안 바꾸면 NAI 가 조용히 t2i 로 그린다.
+        body["action"] = "img2img"
+        body["parameters"].update({
+            "image": ref, "strength": float(strength), "noise": 0,
+            "extra_noise_seed": seed})
     # User-Agent 가 없으면 Cloudflare 가 403 error code: 1010 으로 막는다.
     # 키가 멀쩡해도 그렇다 — 키 문제로 오해하기 딱 좋은 자리라 적어 둔다.
     req = urllib.request.Request(
@@ -1688,7 +1697,8 @@ class Handler(SimpleHTTPRequestHandler):
                     pr, str(data.get("uc") or ""), data.get("seed") or 0,
                     str(data.get("model") or "nai-diffusion-4-5-full"),
                     data.get("width") or 1216, data.get("height") or 832,
-                    data.get("steps") or 28, data.get("scale") or 7.0)
+                    data.get("steps") or 28, data.get("scale") or 7.0,
+                    str(data.get("ref") or ""), data.get("strength") or 0.7)
             except ValueError as e:
                 return self._json({"error": str(e)}, 400)
             except urllib.error.HTTPError as e:
@@ -2233,6 +2243,44 @@ def selftest():
     finally:
         store.delete(NAI_FILE)
         NAI_FILE = _real_nai
+        globals()["_env_all"] = _real_env_all
+
+    # i2i: ref 를 넣으면 action 과 image 가 같이 바뀌어야 한다.
+    # 하나만 바뀌면 NAI 가 조용히 t2i 로 그려 버려서 눈치채기 어렵다.
+    _seen = {}
+
+    class _FakeResp:
+        def __enter__(self):
+            b = io.BytesIO()
+            with zipfile.ZipFile(b, "w") as z:
+                z.writestr("0.png", b"\x89PNG\r\n\x1a\n" + b"\0" * 40)
+            self._b = b.getvalue()
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return self._b
+
+    _real_open = urllib.request.urlopen
+    _real_save = globals()["save_image"]
+    globals()["save_image"] = lambda blob: "t.png"
+    urllib.request.urlopen = lambda req, timeout=0: (
+        _seen.update(json.loads(req.data)), _FakeResp())[1]
+    _fake_env2 = {NAI_KEY: "k"}
+    globals()["_env_all"] = lambda: _fake_env2
+    try:
+        nai_generate("a")
+        assert _seen["action"] == "generate", _seen["action"]
+        assert "image" not in _seen["parameters"]
+        nai_generate("a", ref="BASE64", strength=0.4)
+        assert _seen["action"] == "img2img", _seen["action"]
+        assert _seen["parameters"]["image"] == "BASE64"
+        assert _seen["parameters"]["strength"] == 0.4
+    finally:
+        urllib.request.urlopen = _real_open
+        globals()["save_image"] = _real_save
         globals()["_env_all"] = _real_env_all
 
     # 이름 짓기: 모델이 설명·따옴표를 붙여 와도 이름만 남아야 한다

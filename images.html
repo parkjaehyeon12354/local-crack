@@ -78,6 +78,11 @@ textarea{line-height:1.6;}
 .roll img{width:78px;height:78px;object-fit:cover;border-radius:8px;flex:none;
   border:2px solid transparent;cursor:pointer;}
 .roll img.on{border-color:#f5442e;}
+.ref{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.ref button{background:#171717;border:1px solid #2c2c2c;color:#ddd;border-radius:8px;
+  padding:7px 11px;font-size:12px;}
+.ref button:hover{border-color:#f5442e;color:#f5442e;}
+.ref img{width:56px;height:56px;object-fit:cover;border-radius:8px;border:2px solid #f5442e;}
 .more{display:inline-block;margin-top:10px;color:#7a7a7a;font-size:12px;
   text-decoration:none;}
 .more:hover{color:#f5442e;}
@@ -118,11 +123,27 @@ textarea{line-height:1.6;}
         <div class="hint">태그를 쉼표로 나열해요. 가중치는 <code>1.2::tag ::</code> 형식 그대로 씁니다.</div>
       </div>
 
-      <details class="adv"><summary>세부 설정</summary><div class="body">
-        <div class="fld">
-          <label>빼고 싶은 것 (네거티브)</label>
-          <textarea id="uc" rows="3" placeholder="비우면 기본값을 씁니다"></textarea>
+      <div class="fld">
+        <label>네거티브</label>
+        <textarea id="uc" rows="3" placeholder="비우면 기본값을 씁니다"></textarea>
+      </div>
+
+      <div class="fld">
+        <label>레퍼런스 (i2i)</label>
+        <div class="ref" id="refbox">
+          <input id="reffile" type="file" accept="image/*" hidden>
+          <button id="refpick">그림 고르기</button>
+          <button id="refcur">지금 그림 쓰기</button>
+          <button id="refclr" hidden>빼기</button>
+          <button id="refmeta" hidden>설정 불러오기</button>
+          <img id="refthumb" hidden>
         </div>
+        <div class="two" id="refstr" hidden>
+          <div class="fld"><label>얼마나 바꿀지</label><input id="strength" type="number" value="0.7" min="0.1" max="0.99" step="0.05"></div>
+        </div>
+      </div>
+
+      <details class="adv"><summary>세부 설정</summary><div class="body">
         <div class="fld">
           <label>모델</label>
           <select id="model">
@@ -266,6 +287,62 @@ $('perosave').onclick = async () => {
 };
 peroLoad();
 
+// 레퍼런스. NAI i2i 는 보낸 그림 크기가 width/height 와 같아야 해서
+// canvas 로 잘라 맞춘다 (cover). 서버에 PIL 을 들이는 것보다 싸다.
+// ref 는 언제나 우리 서버의 /img/ 주소다 — 고른 파일도 먼저 올린다.
+// 그래야 canvas 가 안 오염되고, 서버 png_meta 가 읽은 설정을 그대로 쓴다.
+let ref = null;
+function setRef(url) {
+  ref = url;
+  for (const id of ['refthumb', 'refclr', 'refstr', 'refmeta']) $(id).hidden = !url;
+  if (url) $('refthumb').src = url;
+}
+function fitRef(w, h) {
+  return new Promise((ok, no) => {
+    const im = new Image();
+    im.onerror = () => no(new Error('레퍼런스를 읽지 못했어요'));
+    im.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const s = Math.max(w / im.width, h / im.height);
+      const dw = im.width * s, dh = im.height * s;
+      c.getContext('2d').drawImage(im, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      ok(c.toDataURL('image/png').split(',')[1]);
+    };
+    im.src = ref;
+  });
+}
+$('refpick').onclick = () => $('reffile').click();
+$('reffile').onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = await fetch('/api/images', { method: 'POST', body: f });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { $('st').textContent = j.error || '올리지 못했어요'; return; }
+  setRef(j.url);
+  await loadGallery();             // 방금 올린 그림의 EXIF 를 목록에서 받는다
+};
+$('refcur').onclick = () => {
+  if (!cur) { $('st').textContent = '먼저 그림을 하나 고르세요'; return; }
+  setRef(cur.url);
+};
+$('refclr').onclick = () => { setRef(null); $('reffile').value = ''; };
+// PNG tEXt 에 박힌 생성 설정을 폼에 되돌린다. 파싱은 서버가 이미 한다
+// (/api/gallery) — 여기서 또 뜯으면 같은 파서를 두 곳에서 고치게 된다.
+$('refmeta').onclick = () => {
+  const m = made.find(x => x.url === ref);
+  if (!m || !m.prompt) { $('st').textContent = '이 그림엔 생성 정보가 없어요'; return; }
+  $('p').value = m.prompt;
+  if (m.uc) $('uc').value = m.uc;
+  if (m.seed) $('seed').value = m.seed;
+  if (m.steps) $('steps').value = m.steps;
+  if (m.scale) $('scale').value = m.scale;
+  if (m.w && m.h && [...$('size').options].some(o => o.value === m.w + 'x' + m.h))
+    $('size').value = m.w + 'x' + m.h;
+  save();
+  $('st').textContent = '설정을 불러왔어요';
+};
+
 async function generate() {
   const prompt = $('p').value.trim();
   if (!prompt) { $('st').textContent = '프롬프트를 적어 주세요'; return; }
@@ -275,12 +352,14 @@ async function generate() {
   const tick = setInterval(() =>
     $('st').textContent = '그리는 중… ' + ((Date.now() - t0) / 1000).toFixed(0) + '초', 200);
   try {
+    const refb64 = ref ? await fitRef(w, h) : '';
     const r = await fetch('/api/nai', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         prompt, uc: $('uc').value, model: $('model').value,
         width: w, height: h, steps: +$('steps').value,
-        scale: +$('scale').value, seed: +$('seed').value || 0
+        scale: +$('scale').value, seed: +$('seed').value || 0,
+        ref: refb64, strength: +$('strength').value || 0.7
       })
     });
     const j = await r.json();
